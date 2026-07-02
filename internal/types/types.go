@@ -97,6 +97,10 @@ type KeyMeta struct {
 	Bucket   string       `json:"bucket"`
 	Key      string       `json:"key"`
 	Versions []ObjectMeta `json:"versions"`
+	// Synthesized is true when this metadata was derived from a prefilled object
+	// file rather than written by a replicated S3 operation. Such keys are never
+	// removed by snapshot restore — only an explicit S3 delete removes them.
+	Synthesized bool `json:"synthesized,omitempty"`
 }
 
 // Latest returns the current version, or nil if the key has no versions.

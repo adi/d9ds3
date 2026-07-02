@@ -18,6 +18,7 @@ func (b *posixBackend) applyObjectMetaMutation(c *command.Command, mut objMetaMu
 	if err != nil {
 		return err
 	}
+	km.Synthesized = false // a replicated metadata change makes the key first-class
 	idx := 0
 	if c.VersionID != "" {
 		found := false

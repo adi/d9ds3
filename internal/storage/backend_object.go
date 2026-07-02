@@ -66,8 +66,11 @@ func (b *posixBackend) loadKeyMeta(bucket, key string) (*types.KeyMeta, error) {
 }
 
 // loadKeyMetaOrNew is loadKeyMeta but returns a fresh empty history if absent.
+// It clears the Synthesized flag: callers are about to apply a replicated write,
+// so the key becomes first-class replicated state (and thus reconciled by restore).
 func (b *posixBackend) loadKeyMetaOrNew(bucket, key string) *types.KeyMeta {
 	if km, err := b.loadKeyMeta(bucket, key); err == nil {
+		km.Synthesized = false
 		return km
 	}
 	return &types.KeyMeta{Bucket: bucket, Key: key}
@@ -85,7 +88,7 @@ func (b *posixBackend) synthesizeKeyMeta(bucket, key string) *types.KeyMeta {
 	if err != nil || fi.IsDir() {
 		return nil
 	}
-	km := &types.KeyMeta{Bucket: bucket, Key: key, Versions: []types.ObjectMeta{{
+	km := &types.KeyMeta{Bucket: bucket, Key: key, Synthesized: true, Versions: []types.ObjectMeta{{
 		Bucket: bucket, Key: key, VersionID: "null", BlobID: "",
 		Size: fi.Size(), ETag: md5File(op), ContentType: guessContentType(key),
 		LastModified: fi.ModTime().UTC(), IsLatest: true,
@@ -213,6 +216,7 @@ func (b *posixBackend) applyDeleteObject(c *command.Command) error {
 			return nil
 		}
 	}
+	km.Synthesized = false // an explicit S3 delete is a replicated change
 
 	// Delete a specific version.
 	if c.VersionID != "" && c.Meta["explicit-version"] == "true" {

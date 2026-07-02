@@ -261,9 +261,9 @@ func (b *posixBackend) applyCreateBucket(c *command.Command) error {
 }
 
 func (b *posixBackend) applyDeleteBucket(c *command.Command) error {
-	// A bucket is deletable only when it holds no keys at all (including versioned
-	// keys whose current version is a delete marker).
-	if !dirEmpty(b.idir("objmeta", c.Bucket)) {
+	// A bucket is deletable only when it holds no objects — neither replicated keys
+	// (metadata present, including delete markers) nor prefilled files on disk.
+	if files, _ := b.walkObjectTree(c.Bucket); len(files) > 0 || !dirEmpty(b.idir("objmeta", c.Bucket)) {
 		return s3err.ErrBucketNotEmpty
 	}
 	os.RemoveAll(filepath.Join(b.root, c.Bucket))

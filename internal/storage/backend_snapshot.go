@@ -7,6 +7,27 @@ import (
 	"path/filepath"
 )
 
+// removeReplicatedObjectFiles deletes object files that were written through the
+// log (real, non-synthesized metadata), leaving prefilled files untouched. Called
+// before applying a snapshot so replicated deletes are honored without harming
+// operator-provided data.
+func (b *posixBackend) removeReplicatedObjectFiles() {
+	entries, _ := os.ReadDir(b.root)
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == internalDir {
+			continue
+		}
+		bucket := e.Name()
+		keys, _ := b.walkObjectTree(bucket)
+		for _, key := range keys {
+			km, err := b.readKeyMeta(bucket, key) // sidecar only (no synthesis)
+			if err == nil && !km.Synthesized {
+				b.removeCurrent(bucket, key)
+			}
+		}
+	}
+}
+
 // snapshotSkip are pre-commit payload dirs excluded from snapshots (relative to root).
 var snapshotSkip = map[string]bool{
 	filepath.Join(internalDir, "staging"):   true,
@@ -57,18 +78,27 @@ func (b *posixBackend) snapshotTo(w io.Writer) error {
 	return tw.Close()
 }
 
-// restoreFrom replaces the local dataset with the contents of a snapshot archive.
+// restoreFrom applies a snapshot without ever destroying prefilled data. It
+// reconciles only the REPLICATED key set — object files written through the log
+// (real, non-synthesized metadata) — against the snapshot. Prefilled files (a
+// plain file with no/synthesized metadata) are preserved: they are operator data
+// and are only ever removed by an explicit S3 delete, never by snapshot install.
 func (b *posixBackend) restoreFrom(r io.Reader) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Clear everything except the pre-commit staging dirs, then recreate them.
-	entries, _ := os.ReadDir(b.root)
-	for _, e := range entries {
-		os.RemoveAll(filepath.Join(b.root, e.Name()))
+	// Remove replicated object files (so deletes that happened past our log tail
+	// are honored); keep prefilled files. This reads sidecars before we clear them.
+	b.removeReplicatedObjectFiles()
+
+	// Reset internal replicated state (keep pre-commit staging dirs).
+	for _, d := range []string{"versions", "buckets", "objmeta", "mpu", "iam"} {
+		if err := os.RemoveAll(b.idir(d)); err != nil {
+			return err
+		}
 	}
 	for _, d := range []string{"staging", "mpstaging", "versions", "buckets", "objmeta", "mpu", "iam"} {
-		if err := os.MkdirAll(filepath.Join(b.root, internalDir, d), 0o755); err != nil {
+		if err := os.MkdirAll(b.idir(d), 0o755); err != nil {
 			return err
 		}
 	}

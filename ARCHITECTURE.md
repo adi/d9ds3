@@ -187,6 +187,14 @@ An object `bucket/dir/key` is a **plain, browsable file** at `<data>/bucket/dir/
 as-is (bucket = top-level directory, object = file; metadata is synthesized from the
 file — size from `stat`, ETag from its MD5, content-type from the extension).
 
+**Prefilled data is never destroyed by the system.** Snapshot install (Raft
+`InstallSnapshot`) reconciles only *replicated* keys (those written through the log,
+which carry real metadata); prefilled files — a plain file with no/synthesized
+metadata — are always preserved. The only thing that removes operator-provided data
+is an explicit S3 delete. (`DeleteBucket` likewise refuses a bucket that still holds
+prefilled files.) Note: prefill is node-local; for cluster-wide consistency seed the
+same tree on each node, or prefill one node and let snapshots carry it to the rest.
+
 Two independent roots, ideally on separate volumes:
 - **`--data`** — the browsable object tree, plus a hidden `.d9/` for internals:
   `.d9/versions/` (non-current version payloads only), `.d9/objmeta/` (metadata
