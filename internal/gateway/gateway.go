@@ -44,6 +44,16 @@ func New(cl *cluster.Client, stageDir string, events s3event.Notifier) (*Gateway
 // account lookups during authentication).
 func (g *Gateway) Client() *cluster.Client { return g.cl }
 
+// HasLeader reports whether the storage cluster can currently serve requests.
+func (g *Gateway) HasLeader() bool { return g.cl.HasLeader() }
+
+// AccountExists reports whether an IAM account is resolvable (used by readiness
+// probes to gate traffic until the bootstrap account is live).
+func (g *Gateway) AccountExists(accessKeyID string) bool {
+	a, err := g.cl.GetAccount(accessKeyID)
+	return err == nil && a != nil
+}
+
 // Ctx carries per-request context for a mutation.
 type Ctx struct {
 	Account  string // authenticated account id (owner / IssuedBy)

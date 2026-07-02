@@ -62,8 +62,10 @@ never received, pulls the committed bytes from a peer before applying — so it 
 silently skips an object. Unclaimed fan-out payloads (ops that never committed) are
 reclaimed by a **staging GC** (`--staging-ttl`).
 
-> `/console` is a reserved gateway path (it shadows a bucket literally named
-> `console` on the S3 endpoint).
+> Reserved gateway paths (they shadow like-named buckets on the S3 endpoint):
+> `/console` (web UI), `/healthz` (liveness), `/readyz` (readiness — 200 only once
+> the bootstrap account is live, so pods accept traffic without the brief
+> `InvalidAccessKeyId` startup window).
 
 ## Build & test
 ```sh

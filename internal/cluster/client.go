@@ -103,6 +103,13 @@ func (c *Client) shardFor(bucket string) int {
 	return int(h.Sum32() % uint32(n))
 }
 
+// HasLeader reports whether the root shard currently has a reachable leader
+// (i.e. the cluster can serve reads/writes).
+func (c *Client) HasLeader() bool {
+	_, err := c.leaderForShard(0)
+	return err == nil
+}
+
 // leaderForShard finds the node currently leading the given shard.
 func (c *Client) leaderForShard(shard int) (string, error) {
 	for _, node := range c.nodes {

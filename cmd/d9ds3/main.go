@@ -105,6 +105,12 @@ func runGateway(args []string) {
 		go bootstrapRoot(gw, *rootAK, *rootSK)
 	}
 	srv := s3api.New(gw, *region)
+	// Readiness reflects account-ready: don't accept traffic until the root account
+	// exists (which also implies the cluster leader is reachable).
+	if *rootAK != "" {
+		ak := *rootAK
+		srv.SetReadyFunc(func() bool { return gw.AccountExists(ak) })
+	}
 	log.Printf("gateway: s3=%s region=%s nodes=%v", *s3addr, *region, nodeList)
 	if err := srv.Listen(*s3addr); err != nil {
 		log.Fatalf("gateway: %v", err)
@@ -155,8 +161,13 @@ func runStandalone(args []string) {
 	if *rootAK != "" && *rootSK != "" {
 		go bootstrapRoot(gw, *rootAK, *rootSK)
 	}
+	srv := s3api.New(gw, *region)
+	if *rootAK != "" {
+		ak := *rootAK
+		srv.SetReadyFunc(func() bool { return gw.AccountExists(ak) })
+	}
 	log.Printf("standalone: s3=%s region=%s data=%s", *s3addr, *region, *data)
-	if err := s3api.New(gw, *region).Listen(*s3addr); err != nil {
+	if err := srv.Listen(*s3addr); err != nil {
 		log.Fatalf("standalone: %v", err)
 	}
 }

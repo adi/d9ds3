@@ -21,11 +21,12 @@ type Server struct {
 	verifier *auth.Verifier
 	region   string
 	webui    http.Handler
+	ready    func() bool // readiness gate for /readyz (default: cluster has a leader)
 }
 
 // New builds the S3 server over a gateway for the given signing region.
 func New(gw *gateway.Gateway, region string) *Server {
-	s := &Server{gw: gw, region: region, webui: webui.Handler(gw)}
+	s := &Server{gw: gw, region: region, webui: webui.Handler(gw), ready: gw.HasLeader}
 	s.verifier = &auth.Verifier{
 		Region:  region,
 		Service: "s3",
@@ -51,12 +52,36 @@ func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(s.serve)
 }
 
+// SetReadyFunc overrides the /readyz gate. Used to make readiness reflect that the
+// bootstrap (root) account is live, not just that the process is up.
+func (s *Server) SetReadyFunc(fn func() bool) {
+	if fn != nil {
+		s.ready = fn
+	}
+}
+
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			writeErr(w, r, s3err.ErrInternal)
 		}
 	}()
+
+	// Health/readiness endpoints (no auth). Liveness = process up; readiness =
+	// ready to serve authenticated traffic (cluster leader present and, when
+	// configured, the bootstrap account is live).
+	switch r.URL.Path {
+	case "/healthz":
+		w.WriteHeader(http.StatusOK)
+		return
+	case "/readyz":
+		if s.ready != nil && s.ready() {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+		return
+	}
 
 	// The web console and its Basic-auth API are served before SigV4 auth.
 	if r.URL.Path == "/console" || strings.HasPrefix(r.URL.Path, "/console/") {

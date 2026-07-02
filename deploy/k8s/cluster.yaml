@@ -142,10 +142,14 @@ spec:
               valueFrom: { secretKeyRef: { name: d9ds3-root, key: secret-key } }
           ports:
             - containerPort: 8080
-          readinessProbe:
-            httpGet: { path: /console, port: 8080 }
-            initialDelaySeconds: 5
-            periodSeconds: 5
+          readinessProbe:               # Ready only once the root account is live
+            httpGet: { path: /readyz, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 3
+          livenessProbe:                # process-alive
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
