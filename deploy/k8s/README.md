@@ -18,8 +18,8 @@ Two volumes per node by default:
   versions/history/config/iam/staging, plus Raft consensus in a `raft/` subdir.
 
 Raft's `raft/` consensus state must never be copied between nodes or restored
-independently. For lower write latency under heavy load, add a dedicated fast PVC and
-pass **`--raft-dir=/raft`** to move the Raft log off the shared state volume.
+independently. For a faster Raft disk under heavy write load, mount a dedicated fast
+volume at `/state/raft`.
 
 ## Container image
 

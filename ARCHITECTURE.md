@@ -208,10 +208,9 @@ Two roots by default (each may be its own volume):
   multipart), `staging/`+`mpstaging/` (pre-commit fan-out buffers), `iam/`, and
   `raft/` (consensus: `shard-<i>/{log.bolt, stable.bolt, snapshots/}`).
 
-Raft's consensus state is machine-specific — **never** copy it between nodes or
-restore it independently. It defaults to `<state>/raft`; snapshot/restore skip it.
-Set **`--raft-dir`** to put the fsync-heavy Raft log on a dedicated fast (SSD) volume
-— worth it under write-heavy load, otherwise the single state volume is simpler.
+Raft's consensus state lives at `<state>/raft` — machine-specific, so **never** copy
+it between nodes or restore it independently; snapshot/restore skip it. For a faster
+Raft disk under write-heavy load, mount a dedicated volume at `<state>/raft`.
 
 Moves between `--data` and `--state-dir` fall back to copy+remove when they're on
 different volumes (cross-device), so you can put them on separate PVCs.

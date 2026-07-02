@@ -27,9 +27,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  # Internal bookkeeping (versions/history/config/iam/staging) AND, by default,
-  # Raft consensus state under raft/. To move the fsync-heavy Raft log onto a
-  # dedicated fast volume, add a separate PVC + `--raft-dir=/raft` and mount it.
+  # Node-local internal state: versions/history/config/iam/staging + Raft under raft/.
+  # For a faster Raft disk, mount a dedicated fast volume at /state/raft.
   name: d9ds3-state
 spec:
   accessModes: ["ReadWriteOnce"]

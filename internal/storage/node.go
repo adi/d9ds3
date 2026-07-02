@@ -22,15 +22,11 @@ import (
 type Config struct {
 	NodeID  string // unique id, also the Raft ServerID
 	DataDir string // object data root — ONLY the browsable object tree (metadata in xattrs)
-	// StateDir holds internal bookkeeping kept OUT of DataDir: non-current version
-	// blobs, version history, bucket configs, in-flight multipart, staging, IAM.
-	// If empty, defaults to "<DataDir>-state" (a sibling, never nested in DataDir).
-	StateDir string
-	// RaftDir holds node-local Raft consensus state (log/stable BoltDB + snapshots).
-	// It is deliberately SEPARATE from DataDir: it must never be copied between nodes
-	// or restored independently. If empty, defaults to "<DataDir>-raft" (a sibling,
-	// never nested inside DataDir).
-	RaftDir       string
+	// StateDir holds all node-local internal state kept OUT of DataDir: non-current
+	// version blobs, version history, bucket configs, in-flight multipart, staging,
+	// IAM, and Raft consensus state (under a raft/ subdir). If empty, defaults to
+	// "<DataDir>-state" (a sibling, never nested in DataDir).
+	StateDir      string
 	RaftBind      string   // base host:port for Raft transports (shard i uses port+i)
 	RaftAdvertise string   // advertise base addr (defaults to RaftBind)
 	HTTPBind      string   // host:port for the data-plane HTTP server
@@ -82,12 +78,6 @@ func NewNode(cfg Config) (*Node, error) {
 	}
 	if cfg.StateDir == "" {
 		cfg.StateDir = filepath.Clean(cfg.DataDir) + "-state"
-	}
-	if cfg.RaftDir == "" {
-		// By default consensus state lives in a raft/ folder inside the state dir
-		// (so a node needs just two volumes: pure --data + --state-dir). Override
-		// --raft-dir to put the fsync-heavy Raft log on a dedicated fast volume.
-		cfg.RaftDir = filepath.Join(cfg.StateDir, "raft")
 	}
 	backend, err := newPosixBackend(cfg.DataDir, cfg.StateDir)
 	if err != nil {
@@ -160,7 +150,7 @@ func (n *Node) startShard(i int) (*shard, error) {
 		return nil, fmt.Errorf("shard %d transport: %w", i, err)
 	}
 
-	dir := filepath.Join(n.cfg.RaftDir, fmt.Sprintf("shard-%d", i))
+	dir := filepath.Join(n.cfg.StateDir, "raft", fmt.Sprintf("shard-%d", i))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}

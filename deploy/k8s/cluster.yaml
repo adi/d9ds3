@@ -1,9 +1,9 @@
 # d9ds3 HA cluster: a 3-node storage StatefulSet (Raft) behind a headless Service
 # for peer DNS, plus a stateless gateway Deployment.
 #
-# Object data (--data) and Raft consensus state (--raft-dir) are separate volumes:
-# --data is the portable backup/rsync surface; --raft-dir is node-local and must
-# NEVER be copied between nodes or restored independently.
+# Two volumes per node: --data is the pure, portable object tree (metadata in
+# xattrs); --state-dir holds all node-local internal state, including Raft consensus
+# under raft/. The raft/ state must NEVER be copied between nodes or restored.
 #
 #   kubectl apply -f cluster.yaml
 #   # spread shard leadership once the cluster is up (only needed with --shards > 1):
@@ -64,8 +64,8 @@ spec:
                 fi
                 i=$((i+1))
               done
-              # Raft lives at /state/raft by default; for lower write latency add a
-              # separate fast PVC and pass --raft-dir=/raft.
+              # Raft consensus lives at /state/raft (for a fast Raft disk, mount a
+              # separate volume at /state/raft).
               COMMON="--id ${HOSTNAME} --data /data --state-dir /state \
                       --raft 0.0.0.0:9001 --raft-advertise ${SELF}:9001 \
                       --http 0.0.0.0:8001 --shards ${SHARDS} --peers ${PEERS}"
@@ -99,7 +99,7 @@ spec:
         accessModes: ["ReadWriteOnce"]
         # storageClassName: fast-ssd  # holds the fsync-heavy Raft log by default
         resources: { requests: { storage: 50Gi } }
-    # For lower write latency, add a dedicated fast `raft` PVC + `--raft-dir=/raft`.
+    # For a faster Raft disk, mount a dedicated fast volume at /state/raft.
 ---
 # ---- credentials for the gateway's root (admin) account ----
 apiVersion: v1
