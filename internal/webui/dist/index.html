@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>d9ds3 Console</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  :root {
+    --bg: #0b1120;
+    --bg-panel: #111827;
+    --bg-panel-2: #0f172a;
+    --bg-elev: #1e293b;
+    --border: #26324a;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-faint: #64748b;
+    --accent: #38bdf8;
+    --accent-strong: #0ea5e9;
+    --danger: #f87171;
+    --danger-strong: #ef4444;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --radius: 8px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    color: var(--text);
+    padding: 7px 12px;
+    border-radius: var(--radius);
+    transition: background .12s, border-color .12s, opacity .12s;
+  }
+  button:hover { background: #273449; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--accent-strong); border-color: var(--accent-strong); color: #04202e; font-weight: 600; }
+  button.primary:hover { background: var(--accent); }
+  button.danger { background: transparent; border-color: #4a2b33; color: var(--danger); }
+  button.danger:hover { background: #2a1418; border-color: var(--danger-strong); }
+  button.ghost { background: transparent; border-color: transparent; color: var(--text-dim); padding: 4px 8px; }
+  button.ghost:hover { background: var(--bg-elev); color: var(--text); }
+  button.sm { padding: 4px 9px; font-size: 12px; }
+  input, select {
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--bg-panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    width: 100%;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(56,189,248,.18); }
+  label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 5px; }
+  a { color: var(--accent); }
+  .hidden { display: none !important; }
+  .mono { font-family: var(--mono); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .grow { flex: 1; min-width: 0; }
+  .muted { color: var(--text-dim); }
+  .faint { color: var(--text-faint); }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ---------- Login ---------- */
+  #loginView {
+    min-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .login-card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 32px 28px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.45);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .brand svg { width: 30px; height: 30px; }
+  .brand h1 { font-size: 20px; margin: 0; letter-spacing: .5px; }
+  .login-sub { color: var(--text-dim); font-size: 12px; margin: 0 0 22px 40px; }
+  .field { margin-bottom: 14px; }
+
+  /* ---------- App shell ---------- */
+  #appView { display: flex; flex-direction: column; height: 100%; }
+  header.topbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  header.topbar .brand h1 { font-size: 16px; }
+  header.topbar svg { width: 22px; height: 22px; }
+  .topbar-spacer { flex: 1; }
+  .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .badge.admin { color: var(--warn); border-color: #4a3a1a; }
+  .user-chip { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+
+  .layout { display: flex; flex: 1; min-height: 0; }
+  aside.sidebar {
+    width: 260px;
+    flex-shrink: 0;
+    background: var(--bg-panel-2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .sidebar-head {
+    padding: 12px 14px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .sidebar-head h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--text-faint); margin: 0; }
+  .bucket-create { padding: 4px 12px 10px; display: flex; gap: 6px; }
+  .bucket-list { list-style: none; margin: 0; padding: 0 8px; overflow-y: auto; flex: 1; }
+  .bucket-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 8px; border-radius: 6px; cursor: pointer;
+    color: var(--text-dim);
+  }
+  .bucket-item:hover { background: var(--bg-elev); color: var(--text); }
+  .bucket-item.active { background: rgba(56,189,248,.14); color: var(--text); }
+  .bucket-item .bname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .bucket-item .del { opacity: 0; }
+  .bucket-item:hover .del { opacity: 1; }
+
+  main.content { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .content-inner { padding: 18px 22px; overflow-y: auto; flex: 1; }
+
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .breadcrumb { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 13px; }
+  .breadcrumb .crumb { color: var(--accent); cursor: pointer; }
+  .breadcrumb .crumb:hover { text-decoration: underline; }
+  .breadcrumb .sep { color: var(--text-faint); }
+  .breadcrumb .cur { color: var(--text-dim); }
+
+  .upload-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .upload-bar .file-name { font-size: 12px; color: var(--text-dim); max-width: 220px; }
+
+  table.grid { width: 100%; border-collapse: collapse; }
+  table.grid th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
+    color: var(--text-faint); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border);
+  }
+  table.grid td { padding: 9px 10px; border-bottom: 1px solid #1a2333; vertical-align: middle; }
+  table.grid tr:hover td { background: rgba(255,255,255,.02); }
+  .name-cell { display: flex; align-items: center; gap: 8px; }
+  .icon { width: 16px; height: 16px; flex-shrink: 0; opacity: .85; }
+  .obj-link { color: var(--accent); cursor: pointer; }
+  .obj-link:hover { text-decoration: underline; }
+  .prefix-link { color: var(--text); cursor: pointer; font-weight: 500; }
+  .prefix-link:hover { color: var(--accent); }
+  .num { font-variant-numeric: tabular-nums; color: var(--text-dim); white-space: nowrap; }
+  .actions-cell { text-align: right; white-space: nowrap; }
+  .empty { padding: 40px 10px; text-align: center; color: var(--text-faint); }
+
+  h2.section { font-size: 15px; margin: 0 0 14px; }
+  .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 18px; }
+  .card h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-faint); }
+  .form-inline { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .form-inline .field { margin: 0; flex: 1; min-width: 150px; }
+
+  /* ---------- Tabs ---------- */
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 8px 14px; border: none; background: transparent; color: var(--text-dim); border-bottom: 2px solid transparent; border-radius: 0; }
+  .tab:hover { background: transparent; color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ---------- Toast ---------- */
+  #toasts { position: fixed; bottom: 18px; right: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 1000; max-width: 380px; }
+  .toast {
+    padding: 11px 14px; border-radius: 8px; font-size: 13px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+    animation: slideIn .16s ease-out;
+    word-break: break-word;
+  }
+  .toast.ok { border-left: 3px solid var(--ok); }
+  .toast.err { border-left: 3px solid var(--danger); }
+  .toast.info { border-left: 3px solid var(--accent); }
+  @keyframes slideIn { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  .login-error { color: var(--danger); font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px; border: 2px solid var(--text-faint);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 720px) {
+    aside.sidebar { width: 200px; }
+    .content-inner { padding: 14px; }
+    table.grid th:nth-child(3), table.grid td:nth-child(3) { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="loginView">
+  <div class="login-card">
+    <div class="brand">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="12" fill="#0f172a"/><path d="M14 22c0-4 8-7 18-7s18 3 18 7-8 7-18 7-18-3-18-7z" fill="#38bdf8"/><path d="M14 22v20c0 4 8 7 18 7s18-3 18-7V22" fill="none" stroke="#38bdf8" stroke-width="4"/><path d="M14 32c0 4 8 7 18 7s18-3 18-7" fill="none" stroke="#38bdf8" stroke-width="4"/></svg>
+      <h1>d9ds3</h1>
+    </div>
+    <p class="login-sub">S3-compatible gateway console</p>
+    <form id="loginForm">
+      <div class="field">
+        <label for="ak">Access Key</label>
+        <input id="ak" class="mono" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+      </div>
+      <div class="field">
+        <label for="sk">Secret Key</label>
+        <input id="sk" class="mono" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="primary" id="loginBtn" style="width:100%;margin-top:6px;">Sign in</button>
+      <div class="login-error" id="loginError"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="appView" class="hidden">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="12" fill="#0f172a"/><path d="M14 22c0-4 8-7 18-7s18 3 18 7-8 7-18 7-18-3-18-7z" fill="#38bdf8"/><path d="M14 22v20c0 4 8 7 18 7s18-3 18-7V22" fill="none" stroke="#38bdf8" stroke-width="4"/><path d="M14 32c0 4 8 7 18 7s18-3 18-7" fill="none" stroke="#38bdf8" stroke-width="4"/></svg>
+      <h1>d9ds3</h1>
+    </div>
+    <div class="topbar-spacer"></div>
+    <span class="user-chip" id="userChip"></span>
+    <span class="badge" id="roleBadge"></span>
+    <button class="sm" id="logoutBtn">Logout</button>
+  </header>
+
+  <div class="tabs" style="padding:0 16px;margin-bottom:0;">
+    <button class="tab active" data-tab="browser">Storage</button>
+    <button class="tab hidden" data-tab="iam" id="iamTab">Accounts (IAM)</button>
+  </div>
+
+  <!-- Storage tab -->
+  <div class="layout" id="tab-browser">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <h2>Buckets</h2>
+        <button class="ghost sm" id="refreshBuckets" title="Refresh">&#8635;</button>
+      </div>
+      <div class="bucket-create">
+        <input id="newBucket" placeholder="new-bucket-name" class="mono" style="font-size:12px;padding:6px 8px;">
+        <button class="primary sm" id="createBucketBtn">Add</button>
+      </div>
+      <ul class="bucket-list" id="bucketList"></ul>
+    </aside>
+
+    <main class="content">
+      <div class="content-inner">
+        <div id="noBucket" class="empty">Select or create a bucket to browse objects.</div>
+
+        <div id="objectPane" class="hidden">
+          <div class="toolbar">
+            <div class="breadcrumb grow" id="breadcrumb"></div>
+            <button class="ghost sm" id="refreshObjects" title="Refresh">&#8635;</button>
+          </div>
+
+          <div class="upload-bar">
+            <input type="file" id="fileInput" style="max-width:320px;">
+            <button class="primary sm" id="uploadBtn" disabled>Upload here</button>
+            <span class="file-name faint" id="uploadTarget"></span>
+          </div>
+
+          <table class="grid">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th style="width:120px;">Size</th>
+                <th style="width:200px;">Last modified</th>
+                <th style="width:150px;"></th>
+              </tr>
+            </thead>
+            <tbody id="objectRows"></tbody>
+          </table>
+          <div id="objectEmpty" class="empty hidden">This location is empty.</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- IAM tab -->
+  <div id="tab-iam" class="hidden">
+    <div class="content-inner" style="max-width:900px;">
+      <div class="card">
+        <h3>Create account</h3>
+        <form id="createAccountForm">
+          <div class="form-inline">
+            <div class="field">
+              <label for="acAk">Access Key ID</label>
+              <input id="acAk" class="mono" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+            </div>
+            <div class="field">
+              <label for="acSk">Secret Key</label>
+              <input id="acSk" class="mono" required>
+            </div>
+            <div class="field" style="flex:0 0 130px;min-width:110px;">
+              <label for="acRole">Role</label>
+              <select id="acRole">
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+            </div>
+            <button type="submit" class="primary">Create</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3 style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Accounts</span>
+          <button class="ghost sm" id="refreshAccounts" title="Refresh">&#8635;</button>
+        </h3>
+        <table class="grid">
+          <thead>
+            <tr><th>Access Key ID</th><th style="width:120px;">Role</th><th style="width:100px;"></th></tr>
+          </thead>
+          <tbody id="accountRows"></tbody>
+        </table>
+        <div id="accountEmpty" class="empty hidden">No accounts.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+
+<script>
+"use strict";
+
+// ---------------- State ----------------
+var creds = null;          // { authHeader, accessKey } — in-memory only
+var whoami = null;         // { access_key_id, role }
+var currentBucket = null;
+var currentPrefix = "";    // e.g. "photos/2024/"
+var buckets = [];
+
+// ---------------- DOM helpers ----------------
+function $(id) { return document.getElementById(id); }
+function el(tag, attrs, children) {
+  var e = document.createElement(tag);
+  if (attrs) {
+    for (var k in attrs) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "text") e.textContent = attrs[k];
+      else if (k.indexOf("on") === 0 && typeof attrs[k] === "function") e.addEventListener(k.slice(2), attrs[k]);
+      else if (attrs[k] != null) e.setAttribute(k, attrs[k]);
+    }
+  }
+  if (children) {
+    (Array.isArray(children) ? children : [children]).forEach(function (c) {
+      if (c == null) return;
+      e.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    });
+  }
+  return e;
+}
+function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+
+// ---------------- Toast ----------------
+function toast(msg, kind) {
+  var t = el("div", { class: "toast " + (kind || "info"), text: msg });
+  $("toasts").appendChild(t);
+  setTimeout(function () {
+    t.style.transition = "opacity .3s";
+    t.style.opacity = "0";
+    setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 300);
+  }, kind === "err" ? 6000 : 3500);
+}
+
+// ---------------- API ----------------
+function authHeaders(extra) {
+  var h = { "Authorization": creds.authHeader };
+  if (extra) for (var k in extra) h[k] = extra[k];
+  return h;
+}
+
+// Build query string from an object, encoding every value.
+function qs(params) {
+  var parts = [];
+  for (var k in params) {
+    if (params[k] == null) continue;
+    parts.push(encodeURIComponent(k) + "=" + encodeURIComponent(params[k]));
+  }
+  return parts.length ? "?" + parts.join("&") : "";
+}
+
+// Read an error body for a helpful message.
+function readError(resp) {
+  return resp.text().then(function (body) {
+    var msg = "";
+    if (body) {
+      try {
+        var j = JSON.parse(body);
+        msg = j.error || j.message || j.Message || "";
+      } catch (e) { msg = body; }
+    }
+    msg = (msg || "").trim();
+    if (msg.length > 300) msg = msg.slice(0, 300) + "…";
+    return "HTTP " + resp.status + (resp.statusText ? " " + resp.statusText : "") + (msg ? " — " + msg : "");
+  });
+}
+
+// JSON GET/POST/DELETE. Resolves with parsed JSON (or null), rejects with Error(message).
+function apiJSON(method, path, body) {
+  var opts = { method: method, headers: authHeaders() };
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  return fetch(path, opts).then(function (resp) {
+    if (!resp.ok) return readError(resp).then(function (m) { throw new Error(m); });
+    var ct = resp.headers.get("Content-Type") || "";
+    if (ct.indexOf("application/json") !== -1) return resp.json();
+    return resp.text().then(function (t) { return t ? t : null; });
+  });
+}
+
+// ---------------- Auth flow ----------------
+function doLogin(ak, sk) {
+  var header = "Basic " + btoa(ak + ":" + sk);
+  var probe = creds;
+  creds = { authHeader: header, accessKey: ak };
+  return apiJSON("GET", "api/whoami").then(function (info) {
+    whoami = info;
+    return info;
+  }).catch(function (err) {
+    creds = probe; // restore (null on first login)
+    throw err;
+  });
+}
+
+function logout() {
+  creds = null;
+  whoami = null;
+  currentBucket = null;
+  currentPrefix = "";
+  buckets = [];
+  $("sk").value = "";
+  $("appView").classList.add("hidden");
+  $("loginView").classList.remove("hidden");
+  $("loginError").textContent = "";
+  $("ak").focus();
+}
+
+function enterApp() {
+  $("loginView").classList.add("hidden");
+  $("appView").classList.remove("hidden");
+  $("userChip").textContent = whoami.access_key_id;
+  var isAdmin = whoami.role === "admin";
+  var badge = $("roleBadge");
+  badge.textContent = whoami.role;
+  badge.className = "badge" + (isAdmin ? " admin" : "");
+  $("iamTab").classList.toggle("hidden", !isAdmin);
+  switchTab("browser");
+  loadBuckets();
+}
+
+// ---------------- Tabs ----------------
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach(function (t) {
+    t.classList.toggle("active", t.getAttribute("data-tab") === name);
+  });
+  $("tab-browser").classList.toggle("hidden", name !== "browser");
+  $("tab-iam").classList.toggle("hidden", name !== "iam");
+  if (name === "iam") loadAccounts();
+}
+
+// ---------------- Buckets ----------------
+function loadBuckets() {
+  apiJSON("GET", "api/buckets").then(function (list) {
+    buckets = Array.isArray(list) ? list : [];
+    renderBuckets();
+  }).catch(function (e) { toast("Failed to load buckets: " + e.message, "err"); });
+}
+
+function renderBuckets() {
+  var ul = $("bucketList");
+  clear(ul);
+  if (!buckets.length) {
+    ul.appendChild(el("li", { class: "empty", style: "padding:20px 8px;font-size:12px;", text: "No buckets yet." }));
+  }
+  buckets.forEach(function (b) {
+    var name = b.name;
+    var item = el("li", {
+      class: "bucket-item" + (name === currentBucket ? " active" : ""),
+      title: name + (b.created_at ? " · created " + fmtDate(b.created_at) : ""),
+      onclick: function () { selectBucket(name); }
+    }, [
+      el("span", { class: "icon", "aria-hidden": "true" }, folderSvg()),
+      el("span", { class: "bname", text: name })
+    ]);
+    var del = el("button", {
+      class: "ghost sm del", title: "Delete bucket", text: "✕",
+      onclick: function (ev) { ev.stopPropagation(); deleteBucket(name); }
+    });
+    item.appendChild(del);
+    ul.appendChild(item);
+  });
+}
+
+function createBucket() {
+  var input = $("newBucket");
+  var name = input.value.trim();
+  if (!name) return;
+  apiJSON("POST", "api/buckets", { name: name }).then(function () {
+    toast("Bucket \"" + name + "\" created.", "ok");
+    input.value = "";
+    return apiJSON("GET", "api/buckets");
+  }).then(function (list) {
+    buckets = Array.isArray(list) ? list : [];
+    renderBuckets();
+    selectBucket(name);
+  }).catch(function (e) { toast("Create bucket failed: " + e.message, "err"); });
+}
+
+function deleteBucket(name) {
+  if (!confirm("Delete bucket \"" + name + "\"?\nThis cannot be undone.")) return;
+  apiJSON("DELETE", "api/buckets" + qs({ bucket: name })).then(function () {
+    toast("Bucket \"" + name + "\" deleted.", "ok");
+    if (currentBucket === name) { currentBucket = null; currentPrefix = ""; showNoBucket(); }
+    loadBuckets();
+  }).catch(function (e) { toast("Delete bucket failed: " + e.message, "err"); });
+}
+
+function selectBucket(name) {
+  currentBucket = name;
+  currentPrefix = "";
+  renderBuckets();
+  $("noBucket").classList.add("hidden");
+  $("objectPane").classList.remove("hidden");
+  loadObjects();
+}
+
+function showNoBucket() {
+  $("objectPane").classList.add("hidden");
+  $("noBucket").classList.remove("hidden");
+  renderBuckets();
+}
+
+// ---------------- Objects ----------------
+function loadObjects() {
+  if (!currentBucket) return;
+  var rows = $("objectRows");
+  clear(rows);
+  rows.appendChild(el("tr", null, el("td", { colspan: "4", class: "muted", style: "padding:16px;" }, [spinnerNode(), " Loading…"])));
+  renderBreadcrumb();
+  updateUploadTarget();
+
+  apiJSON("GET", "api/objects" + qs({ bucket: currentBucket, prefix: currentPrefix, delimiter: "/" }))
+    .then(function (data) {
+      renderObjects(data || {});
+    })
+    .catch(function (e) {
+      clear(rows);
+      rows.appendChild(el("tr", null, el("td", { colspan: "4", style: "padding:16px;color:var(--danger);" }, "Failed to load objects: " + e.message)));
+    });
+}
+
+function renderObjects(data) {
+  var prefixes = Array.isArray(data.prefixes) ? data.prefixes : [];
+  var objects = Array.isArray(data.objects) ? data.objects : [];
+  var rows = $("objectRows");
+  clear(rows);
+
+  // "up" row if inside a prefix
+  if (currentPrefix) {
+    var upRow = el("tr", null, [
+      el("td", null, el("span", {
+        class: "name-cell prefix-link",
+        onclick: goUpOne
+      }, [el("span", { class: "icon", "aria-hidden": "true" }, folderUpSvg()), el("span", { text: ".." })])),
+      el("td", null, ""), el("td", null, ""), el("td", null, "")
+    ]);
+    rows.appendChild(upRow);
+  }
+
+  // folders (prefixes)
+  prefixes.forEach(function (p) {
+    var label = p;
+    if (currentPrefix && label.indexOf(currentPrefix) === 0) label = label.slice(currentPrefix.length);
+    label = label.replace(/\/$/, "");
+    var tr = el("tr", null, [
+      el("td", null, el("span", {
+        class: "name-cell prefix-link",
+        title: p,
+        onclick: function () { descendInto(p); }
+      }, [el("span", { class: "icon", "aria-hidden": "true" }, folderSvg()), el("span", { text: label + "/" })])),
+      el("td", { class: "num muted" }, "—"),
+      el("td", { class: "num muted" }, "—"),
+      el("td", null, "")
+    ]);
+    rows.appendChild(tr);
+  });
+
+  // objects (files)
+  objects.forEach(function (o) {
+    var key = o.key;
+    // Hide a "self" marker object equal to the prefix (folder placeholder), if any.
+    if (key === currentPrefix) return;
+    var display = key;
+    if (currentPrefix && display.indexOf(currentPrefix) === 0) display = display.slice(currentPrefix.length);
+
+    var nameCell = el("td", null, el("span", {
+      class: "name-cell",
+    }, [
+      el("span", { class: "icon", "aria-hidden": "true" }, fileSvg()),
+      el("span", { class: "obj-link", title: key, text: display, onclick: function () { downloadObject(key); } })
+    ]));
+
+    var actions = el("td", { class: "actions-cell" }, [
+      el("button", { class: "ghost sm", text: "Download", onclick: function () { downloadObject(key); } }),
+      el("button", { class: "danger sm", text: "Delete", style: "margin-left:4px;", onclick: function () { deleteObject(key); } })
+    ]);
+
+    rows.appendChild(el("tr", null, [
+      nameCell,
+      el("td", { class: "num" }, fmtSize(o.size)),
+      el("td", { class: "num" }, o.last_modified ? fmtDate(o.last_modified) : "—"),
+      actions
+    ]));
+  });
+
+  var visibleCount = prefixes.length + objects.filter(function (o) { return o.key !== currentPrefix; }).length;
+  $("objectEmpty").classList.toggle("hidden", visibleCount > 0 || !!currentPrefix);
+}
+
+function descendInto(prefix) {
+  currentPrefix = prefix; // prefixes already include trailing slash + full path
+  loadObjects();
+}
+
+function goUpOne() {
+  var p = currentPrefix.replace(/\/$/, "");
+  var idx = p.lastIndexOf("/");
+  currentPrefix = idx === -1 ? "" : p.slice(0, idx + 1);
+  loadObjects();
+}
+
+function navigateToDepth(depth) {
+  // depth 0 => bucket root; depth n => first n segments
+  var segs = currentPrefix.replace(/\/$/, "").split("/").filter(Boolean);
+  if (depth <= 0) currentPrefix = "";
+  else currentPrefix = segs.slice(0, depth).join("/") + "/";
+  loadObjects();
+}
+
+function renderBreadcrumb() {
+  var bc = $("breadcrumb");
+  clear(bc);
+  bc.appendChild(el("span", { class: "crumb", text: currentBucket, onclick: function () { navigateToDepth(0); } }));
+  var segs = currentPrefix.replace(/\/$/, "").split("/").filter(Boolean);
+  segs.forEach(function (seg, i) {
+    bc.appendChild(el("span", { class: "sep", text: "/" }));
+    if (i === segs.length - 1) {
+      bc.appendChild(el("span", { class: "cur", text: seg }));
+    } else {
+      bc.appendChild(el("span", { class: "crumb", text: seg, onclick: function () { navigateToDepth(i + 1); } }));
+    }
+  });
+}
+
+function updateUploadTarget() {
+  $("uploadTarget").textContent = "→ " + currentBucket + "/" + currentPrefix;
+}
+
+function downloadObject(key) {
+  var url = "api/object" + qs({ bucket: currentBucket, key: key });
+  toast("Downloading…", "info");
+  fetch(url, { headers: authHeaders() }).then(function (resp) {
+    if (!resp.ok) return readError(resp).then(function (m) { throw new Error(m); });
+    return resp.blob();
+  }).then(function (blob) {
+    var a = document.createElement("a");
+    var objUrl = URL.createObjectURL(blob);
+    a.href = objUrl;
+    a.download = key.split("/").pop() || "download";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(objUrl); }, 4000);
+  }).catch(function (e) { toast("Download failed: " + e.message, "err"); });
+}
+
+function deleteObject(key) {
+  if (!confirm("Delete object:\n" + key + " ?")) return;
+  apiJSON("DELETE", "api/object" + qs({ bucket: currentBucket, key: key })).then(function () {
+    toast("Deleted.", "ok");
+    loadObjects();
+  }).catch(function (e) { toast("Delete failed: " + e.message, "err"); });
+}
+
+function uploadFile() {
+  var input = $("fileInput");
+  var file = input.files && input.files[0];
+  if (!file) { toast("Choose a file first.", "err"); return; }
+  var key = currentPrefix + file.name;
+  var url = "api/object" + qs({ bucket: currentBucket, key: key });
+  var btn = $("uploadBtn");
+  btn.disabled = true;
+  var prev = btn.textContent;
+  btn.textContent = "Uploading…";
+  fetch(url, {
+    method: "PUT",
+    headers: authHeaders({ "Content-Type": file.type || "application/octet-stream" }),
+    body: file
+  }).then(function (resp) {
+    if (!resp.ok) return readError(resp).then(function (m) { throw new Error(m); });
+    toast("Uploaded \"" + file.name + "\".", "ok");
+    input.value = "";
+    btn.disabled = true;
+    loadObjects();
+  }).catch(function (e) {
+    toast("Upload failed: " + e.message, "err");
+    btn.disabled = false;
+  }).then(function () { btn.textContent = prev; });
+}
+
+// ---------------- IAM ----------------
+function loadAccounts() {
+  if (!whoami || whoami.role !== "admin") return;
+  var rows = $("accountRows");
+  clear(rows);
+  rows.appendChild(el("tr", null, el("td", { colspan: "3", class: "muted", style: "padding:14px;" }, [spinnerNode(), " Loading…"])));
+  apiJSON("GET", "api/accounts").then(function (list) {
+    renderAccounts(Array.isArray(list) ? list : []);
+  }).catch(function (e) {
+    clear(rows);
+    rows.appendChild(el("tr", null, el("td", { colspan: "3", style: "padding:14px;color:var(--danger);" }, "Failed to load accounts: " + e.message)));
+  });
+}
+
+function renderAccounts(list) {
+  var rows = $("accountRows");
+  clear(rows);
+  $("accountEmpty").classList.toggle("hidden", list.length > 0);
+  list.forEach(function (a) {
+    var isSelf = a.access_key_id === whoami.access_key_id;
+    var roleCell = el("td", null, el("span", {
+      class: "badge" + (a.role === "admin" ? " admin" : ""), text: a.role
+    }));
+    var actionCell = el("td", { class: "actions-cell" });
+    if (isSelf) {
+      actionCell.appendChild(el("span", { class: "faint", style: "font-size:12px;", text: "(you)" }));
+    } else {
+      actionCell.appendChild(el("button", {
+        class: "danger sm", text: "Delete",
+        onclick: function () { deleteAccount(a.access_key_id); }
+      }));
+    }
+    rows.appendChild(el("tr", null, [
+      el("td", { class: "mono", text: a.access_key_id }),
+      roleCell,
+      actionCell
+    ]));
+  });
+}
+
+function createAccount() {
+  var ak = $("acAk").value.trim();
+  var sk = $("acSk").value;
+  var role = $("acRole").value;
+  if (!ak || !sk) { toast("Access key and secret are required.", "err"); return; }
+  apiJSON("POST", "api/accounts", { access_key_id: ak, secret_key: sk, role: role }).then(function () {
+    toast("Account \"" + ak + "\" created.", "ok");
+    $("acAk").value = "";
+    $("acSk").value = "";
+    $("acRole").value = "user";
+    loadAccounts();
+  }).catch(function (e) { toast("Create account failed: " + e.message, "err"); });
+}
+
+function deleteAccount(ak) {
+  if (!confirm("Delete account \"" + ak + "\"?")) return;
+  apiJSON("DELETE", "api/accounts" + qs({ access_key: ak })).then(function () {
+    toast("Account \"" + ak + "\" deleted.", "ok");
+    loadAccounts();
+  }).catch(function (e) { toast("Delete account failed: " + e.message, "err"); });
+}
+
+// ---------------- Formatters & icons ----------------
+function fmtSize(bytes) {
+  if (bytes == null || isNaN(bytes)) return "—";
+  bytes = Number(bytes);
+  if (bytes === 0) return "0 B";
+  var units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  var i = Math.floor(Math.log(bytes) / Math.log(1024));
+  i = Math.min(i, units.length - 1);
+  var v = bytes / Math.pow(1024, i);
+  return (i === 0 ? v : v.toFixed(v < 10 ? 2 : 1)) + " " + units[i];
+}
+function fmtDate(iso) {
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+    " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+function spinnerNode() { return el("span", { class: "spinner", "aria-hidden": "true" }); }
+
+// SVG icons built via DOM (namespaced) to avoid innerHTML.
+function svgIcon(paths, opts) {
+  var ns = "http://www.w3.org/2000/svg";
+  var svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "icon");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", (opts && opts.stroke) || "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  paths.forEach(function (d) {
+    var p = document.createElementNS(ns, "path");
+    p.setAttribute("d", d);
+    svg.appendChild(p);
+  });
+  return svg;
+}
+function folderSvg() { return svgIcon(["M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"], { stroke: "#38bdf8" }); }
+function folderUpSvg() { return svgIcon(["M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", "M12 15v-4", "M10 12l2-2 2 2"], { stroke: "#94a3b8" }); }
+function fileSvg() { return svgIcon(["M6 3h8l4 4v14a0 0 0 0 1 0 0H6a0 0 0 0 1 0 0z", "M14 3v4h4"], { stroke: "#94a3b8" }); }
+
+// ---------------- Wiring ----------------
+$("loginForm").addEventListener("submit", function (ev) {
+  ev.preventDefault();
+  var ak = $("ak").value.trim();
+  var sk = $("sk").value;
+  var errBox = $("loginError");
+  var btn = $("loginBtn");
+  errBox.textContent = "";
+  if (!ak || !sk) { errBox.textContent = "Enter both access key and secret key."; return; }
+  btn.disabled = true;
+  var prev = btn.textContent;
+  btn.textContent = "Signing in…";
+  doLogin(ak, sk).then(function () {
+    enterApp();
+  }).catch(function (e) {
+    var msg = e.message || String(e);
+    if (msg.indexOf("HTTP 401") !== -1) msg = "Invalid access key or secret key.";
+    else if (msg.indexOf("Failed to fetch") !== -1 || msg.indexOf("NetworkError") !== -1) msg = "Cannot reach the gateway. Check that it is running.";
+    errBox.textContent = msg;
+  }).then(function () {
+    btn.disabled = false;
+    btn.textContent = prev;
+  });
+});
+
+$("logoutBtn").addEventListener("click", logout);
+
+document.querySelectorAll(".tab").forEach(function (t) {
+  t.addEventListener("click", function () { switchTab(t.getAttribute("data-tab")); });
+});
+
+$("createBucketBtn").addEventListener("click", createBucket);
+$("newBucket").addEventListener("keydown", function (e) { if (e.key === "Enter") createBucket(); });
+$("refreshBuckets").addEventListener("click", loadBuckets);
+$("refreshObjects").addEventListener("click", loadObjects);
+
+$("fileInput").addEventListener("change", function () {
+  $("uploadBtn").disabled = !(this.files && this.files.length);
+});
+$("uploadBtn").addEventListener("click", uploadFile);
+
+$("createAccountForm").addEventListener("submit", function (ev) { ev.preventDefault(); createAccount(); });
+$("refreshAccounts").addEventListener("click", loadAccounts);
+
+// Start focused on access key.
+$("ak").focus();
+</script>
+</body>
+</html>

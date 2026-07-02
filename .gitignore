@@ -1,0 +1,13 @@
+# Compiled binaries / build output
+/bin/
+d9ds3
+
+# Local runtime state (storage data dirs, gateway staging)
+/data/
+data*/
+*.bolt
+
+# Test / scratch output
+*.out
+*.test
+coverage.out
