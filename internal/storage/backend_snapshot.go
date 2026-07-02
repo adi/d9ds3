@@ -51,8 +51,9 @@ func (b *posixBackend) snapshotTo(w io.Writer) error {
 		tw.Close()
 		return err
 	}
-	// 2. State root → state/ entries, skipping pre-commit staging.
-	skip := map[string]bool{"staging": true, "mpstaging": true}
+	// 2. State root → state/ entries, skipping pre-commit staging and, when Raft
+	// lives inside the state dir (the default), its consensus state.
+	skip := map[string]bool{"staging": true, "mpstaging": true, "raft": true}
 	if err := b.tarTree(tw, b.state, snapState, false, skip); err != nil {
 		tw.Close()
 		return err

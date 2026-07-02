@@ -27,23 +27,15 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: d9ds3-state         # internal bookkeeping (versions/history/config/iam/staging)
+  # Internal bookkeeping (versions/history/config/iam/staging) AND, by default,
+  # Raft consensus state under raft/. To move the fsync-heavy Raft log onto a
+  # dedicated fast volume, add a separate PVC + `--raft-dir=/raft` and mount it.
+  name: d9ds3-state
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
       storage: 50Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: d9ds3-raft          # Raft consensus state — small, fsync-heavy (put on SSD)
-spec:
-  accessModes: ["ReadWriteOnce"]
-  # storageClassName: fast-ssd
-  resources:
-    requests:
-      storage: 5Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -68,8 +60,7 @@ spec:
             - standalone
             - --s3=:8080
             - --data=/data
-            - --state-dir=/state
-            - --raft-dir=/raft
+            - --state-dir=/state    # Raft lives at /state/raft by default
             - --region=us-east-1
             - --root-access-key=$(ROOT_AK)
             - --root-secret=$(ROOT_SK)
@@ -90,15 +81,12 @@ spec:
             periodSeconds: 10
           volumeMounts:
             - { name: data, mountPath: /data }    # ONLY the browsable object tree (+ xattrs)
-            - { name: state, mountPath: /state }  # versions/history/config/iam/staging
-            - { name: raft, mountPath: /raft }
+            - { name: state, mountPath: /state }  # versions/history/config/iam/staging + raft/
       volumes:
         - name: data
           persistentVolumeClaim: { claimName: d9ds3-data }
         - name: state
           persistentVolumeClaim: { claimName: d9ds3-state }
-        - name: raft
-          persistentVolumeClaim: { claimName: d9ds3-raft }
 ---
 apiVersion: v1
 kind: Service

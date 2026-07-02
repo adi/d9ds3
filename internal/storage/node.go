@@ -80,13 +80,14 @@ func NewNode(cfg Config) (*Node, error) {
 	if cfg.Shards <= 0 {
 		cfg.Shards = 1
 	}
-	if cfg.RaftDir == "" {
-		// Sibling of DataDir, never nested inside it, so backing up / rsync-ing the
-		// object data can't touch Raft consensus state.
-		cfg.RaftDir = filepath.Clean(cfg.DataDir) + "-raft"
-	}
 	if cfg.StateDir == "" {
 		cfg.StateDir = filepath.Clean(cfg.DataDir) + "-state"
+	}
+	if cfg.RaftDir == "" {
+		// By default consensus state lives in a raft/ folder inside the state dir
+		// (so a node needs just two volumes: pure --data + --state-dir). Override
+		// --raft-dir to put the fsync-heavy Raft log on a dedicated fast volume.
+		cfg.RaftDir = filepath.Join(cfg.StateDir, "raft")
 	}
 	backend, err := newPosixBackend(cfg.DataDir, cfg.StateDir)
 	if err != nil {

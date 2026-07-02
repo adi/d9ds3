@@ -199,17 +199,19 @@ delete. (`DeleteBucket` likewise refuses a bucket that still holds prefilled fil
 Note: prefill is node-local; for cluster-wide consistency seed the same tree on each
 node, or prefill one node and let snapshots carry it to the rest.
 
-Three independent roots (each may be its own volume):
+Two roots by default (each may be its own volume):
 - **`--data`** — ONLY the browsable object tree (files + xattrs). This is the
   backup/rsync surface; nothing internal ever lands here.
-- **`--state-dir`** — internal bookkeeping kept out of `--data`: `versions/`
-  (non-current version payloads), `history/` (version history, only for versioned
-  keys), `buckets/` (bucket config), `mpu/` (in-flight multipart), `staging/` +
-  `mpstaging/` (pre-commit fan-out buffers), `iam/`. Durable, node-local. Defaults to
-  `<data>-state`.
-- **`--raft-dir`** — node-local consensus state: `shard-<i>/{log.bolt, stable.bolt,
-  snapshots/}`. Machine-specific; **never** copy between nodes or restore
-  independently. Defaults to `<data>-raft`.
+- **`--state-dir`** (default `<data>-state`) — all node-local internal state kept out
+  of `--data`: `versions/` (non-current version payloads), `history/` (version
+  history, only for versioned keys), `buckets/` (bucket config), `mpu/` (in-flight
+  multipart), `staging/`+`mpstaging/` (pre-commit fan-out buffers), `iam/`, and
+  `raft/` (consensus: `shard-<i>/{log.bolt, stable.bolt, snapshots/}`).
+
+Raft's consensus state is machine-specific — **never** copy it between nodes or
+restore it independently. It defaults to `<state>/raft`; snapshot/restore skip it.
+Set **`--raft-dir`** to put the fsync-heavy Raft log on a dedicated fast (SSD) volume
+— worth it under write-heavy load, otherwise the single state volume is simpler.
 
 Moves between `--data` and `--state-dir` fall back to copy+remove when they're on
 different volumes (cross-device), so you can put them on separate PVCs.

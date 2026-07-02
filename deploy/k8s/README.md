@@ -8,16 +8,18 @@ Two examples:
   Service for peer discovery, plus a stateless gateway `Deployment`. Quorum
   durability, survives a node loss.
 
-Three volumes per node, each independent:
+Two volumes per node by default:
 - **`--data`** — ONLY the browsable object tree; object metadata is stored in
   **extended attributes** on the files. It's the portable backup/rsync surface
   (`rsync -X`/`tar --xattrs` to carry metadata; a plain copy still works, metadata
   is re-synthesized). The `--data` filesystem must support user xattrs — ext4/xfs
   (and most CSI block volumes) do.
-- **`--state-dir`** — internal bookkeeping (versions/history/config/iam/staging),
-  kept out of `--data`.
-- **`--raft-dir`** — node-local consensus state; never copy between nodes or restore
-  independently.
+- **`--state-dir`** — all node-local internal state kept out of `--data`:
+  versions/history/config/iam/staging, plus Raft consensus in a `raft/` subdir.
+
+Raft's `raft/` consensus state must never be copied between nodes or restored
+independently. For lower write latency under heavy load, add a dedicated fast PVC and
+pass **`--raft-dir=/raft`** to move the Raft log off the shared state volume.
 
 ## Container image
 

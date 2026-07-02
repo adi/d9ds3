@@ -64,7 +64,9 @@ spec:
                 fi
                 i=$((i+1))
               done
-              COMMON="--id ${HOSTNAME} --data /data --state-dir /state --raft-dir /raft \
+              # Raft lives at /state/raft by default; for lower write latency add a
+              # separate fast PVC and pass --raft-dir=/raft.
+              COMMON="--id ${HOSTNAME} --data /data --state-dir /state \
                       --raft 0.0.0.0:9001 --raft-advertise ${SELF}:9001 \
                       --http 0.0.0.0:8001 --shards ${SHARDS} --peers ${PEERS}"
               if [ "$ORD" = "0" ]; then
@@ -85,23 +87,19 @@ spec:
             periodSeconds: 10
           volumeMounts:
             - { name: data, mountPath: /data }    # ONLY the browsable object tree (+ xattrs)
-            - { name: state, mountPath: /state }  # versions/history/config/iam/staging
-            - { name: raft, mountPath: /raft }
+            - { name: state, mountPath: /state }  # versions/history/config/iam/staging + raft/
   volumeClaimTemplates:
     - metadata: { name: data }        # object data (bulk); the backup/rsync surface
       spec:
         accessModes: ["ReadWriteOnce"]
         # storageClassName: bulk-hdd
         resources: { requests: { storage: 100Gi } }
-    - metadata: { name: state }       # internal bookkeeping (versions can be large)
+    - metadata: { name: state }       # internal bookkeeping + Raft (raft/ subdir)
       spec:
         accessModes: ["ReadWriteOnce"]
+        # storageClassName: fast-ssd  # holds the fsync-heavy Raft log by default
         resources: { requests: { storage: 50Gi } }
-    - metadata: { name: raft }        # consensus log (small, SSD, low-latency fsync)
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        # storageClassName: fast-ssd
-        resources: { requests: { storage: 5Gi } }
+    # For lower write latency, add a dedicated fast `raft` PVC + `--raft-dir=/raft`.
 ---
 # ---- credentials for the gateway's root (admin) account ----
 apiVersion: v1
