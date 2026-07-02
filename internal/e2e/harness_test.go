@@ -110,6 +110,7 @@ func (h *harness) makeNode(bootstrap bool) string {
 	cfg := storage.Config{
 		NodeID:            fmt.Sprintf("n%d", idx+1),
 		DataDir:           h.t.TempDir(),
+		RaftDir:           h.t.TempDir(), // consensus state on its own path, separate from object data
 		RaftBind:          fmt.Sprintf("127.0.0.1:%d", freePortBlock(h.t, shards)),
 		HTTPBind:          httpAddr,
 		Bootstrap:         bootstrap,

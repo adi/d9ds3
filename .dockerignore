@@ -1,0 +1,6 @@
+bin/
+data*/
+*-raft/
+*.out
+*.test
+.git/

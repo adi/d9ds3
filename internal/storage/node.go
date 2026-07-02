@@ -20,8 +20,13 @@ import (
 
 // Config configures a storage node.
 type Config struct {
-	NodeID        string   // unique id, also the Raft ServerID
-	DataDir       string   // local storage + raft state root
+	NodeID  string // unique id, also the Raft ServerID
+	DataDir string // object data root (vstore/keys/buckets/mpu/iam/staging) — the backup/rsync surface
+	// RaftDir holds node-local Raft consensus state (log/stable BoltDB + snapshots).
+	// It is deliberately SEPARATE from DataDir: it must never be copied between nodes
+	// or restored independently. If empty, defaults to "<DataDir>-raft" (a sibling,
+	// never nested inside DataDir).
+	RaftDir       string
 	RaftBind      string   // base host:port for Raft transports (shard i uses port+i)
 	RaftAdvertise string   // advertise base addr (defaults to RaftBind)
 	HTTPBind      string   // host:port for the data-plane HTTP server
@@ -70,6 +75,11 @@ func NewNode(cfg Config) (*Node, error) {
 	}
 	if cfg.Shards <= 0 {
 		cfg.Shards = 1
+	}
+	if cfg.RaftDir == "" {
+		// Sibling of DataDir, never nested inside it, so backing up / rsync-ing the
+		// object data can't touch Raft consensus state.
+		cfg.RaftDir = filepath.Clean(cfg.DataDir) + "-raft"
 	}
 	backend, err := newPosixBackend(cfg.DataDir)
 	if err != nil {
@@ -142,7 +152,7 @@ func (n *Node) startShard(i int) (*shard, error) {
 		return nil, fmt.Errorf("shard %d transport: %w", i, err)
 	}
 
-	dir := filepath.Join(n.cfg.DataDir, "raft", fmt.Sprintf("shard-%d", i))
+	dir := filepath.Join(n.cfg.RaftDir, fmt.Sprintf("shard-%d", i))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}

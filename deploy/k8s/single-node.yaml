@@ -1,0 +1,99 @@
+# d9ds3 single-node (standalone): one process = storage node + gateway.
+# Durable local storage, but NO replication/failover. Great for dev/CI/edge/small.
+# Object data and Raft consensus state live on SEPARATE volumes on purpose:
+# the Raft volume is node-local and must never be copied/restored independently.
+#
+#   kubectl apply -f single-node.yaml
+#   # S3 at the Service; console at http://<svc>/console
+apiVersion: v1
+kind: Secret
+metadata:
+  name: d9ds3-root
+stringData:
+  access-key: admin
+  secret-key: CHANGE-ME-strong-secret
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: d9ds3-data          # object data — the backup/rsync surface (can be bulk storage)
+spec:
+  accessModes: ["ReadWriteOnce"]
+  # storageClassName: bulk-hdd
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: d9ds3-raft          # Raft consensus state — small, fsync-heavy (put on SSD)
+spec:
+  accessModes: ["ReadWriteOnce"]
+  # storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: d9ds3
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # RWO volumes can't attach to two pods during a rollout
+  selector:
+    matchLabels:
+      app: d9ds3
+  template:
+    metadata:
+      labels:
+        app: d9ds3
+    spec:
+      containers:
+        - name: d9ds3
+          image: ghcr.io/adi/d9ds3:latest
+          args:
+            - standalone
+            - --s3=:8080
+            - --data=/data
+            - --raft-dir=/raft
+            - --region=us-east-1
+            - --root-access-key=$(ROOT_AK)
+            - --root-secret=$(ROOT_SK)
+          env:
+            - name: ROOT_AK
+              valueFrom: { secretKeyRef: { name: d9ds3-root, key: access-key } }
+            - name: ROOT_SK
+              valueFrom: { secretKeyRef: { name: d9ds3-root, key: secret-key } }
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /console, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /console, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: raft, mountPath: /raft }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: d9ds3-data }
+        - name: raft
+          persistentVolumeClaim: { claimName: d9ds3-raft }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: d9ds3
+spec:
+  type: LoadBalancer        # or ClusterIP + Ingress
+  selector:
+    app: d9ds3
+  ports:
+    - port: 80
+      targetPort: 8080

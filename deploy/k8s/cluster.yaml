@@ -1,0 +1,160 @@
+# d9ds3 HA cluster: a 3-node storage StatefulSet (Raft) behind a headless Service
+# for peer DNS, plus a stateless gateway Deployment.
+#
+# Object data (--data) and Raft consensus state (--raft-dir) are separate volumes:
+# --data is the portable backup/rsync surface; --raft-dir is node-local and must
+# NEVER be copied between nodes or restored independently.
+#
+#   kubectl apply -f cluster.yaml
+#   # spread shard leadership once the cluster is up (only needed with --shards > 1):
+#   # kubectl exec d9ds3-storage-0 -- wget -qO- --post-data= http://localhost:8001/v1/rebalance
+---
+# ---- headless Service: gives each storage pod a stable DNS name for peers ----
+apiVersion: v1
+kind: Service
+metadata:
+  name: d9ds3-storage           # must equal StatefulSet.spec.serviceName
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true # peers must resolve before Ready (join/election)
+  selector:
+    app: d9ds3-storage
+  ports:
+    - { name: dataplane, port: 8001 }
+    - { name: raft,      port: 9001 }
+---
+# ---- storage tier: stateful Raft peers, one PVC pair per pod ----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: d9ds3-storage
+spec:
+  serviceName: d9ds3-storage
+  replicas: 3
+  podManagementPolicy: OrderedReady   # pod-0 bootstraps and is Ready before pod-1 joins
+  selector:
+    matchLabels:
+      app: d9ds3-storage
+  template:
+    metadata:
+      labels:
+        app: d9ds3-storage
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: storage
+          image: ghcr.io/adi/d9ds3:latest
+          env:
+            - name: NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - { name: HEADLESS_SVC, value: d9ds3-storage }
+            - { name: REPLICAS, value: "3" }
+            - { name: SHARDS,   value: "1" }   # raise for write scaling; also expose 9001..9001+SHARDS-1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              ORD="${HOSTNAME##*-}"                       # ordinal from d9ds3-storage-<N>
+              DOMAIN="${HEADLESS_SVC}.${NAMESPACE}.svc.cluster.local"
+              SELF="${HOSTNAME}.${DOMAIN}"
+              PEERS=""; i=0
+              while [ "$i" -lt "$REPLICAS" ]; do
+                if [ "$i" != "$ORD" ]; then
+                  PEERS="${PEERS:+$PEERS,}d9ds3-storage-$i.${DOMAIN}:8001"
+                fi
+                i=$((i+1))
+              done
+              COMMON="--id ${HOSTNAME} --data /data --raft-dir /raft \
+                      --raft 0.0.0.0:9001 --raft-advertise ${SELF}:9001 \
+                      --http 0.0.0.0:8001 --shards ${SHARDS} --peers ${PEERS}"
+              if [ "$ORD" = "0" ]; then
+                exec d9ds3 storage $COMMON --bootstrap
+              else
+                exec d9ds3 storage $COMMON --join d9ds3-storage-0.${DOMAIN}:8001
+              fi
+          ports:
+            - { name: dataplane, containerPort: 8001 }
+            - { name: raft,      containerPort: 9001 }
+          readinessProbe:
+            httpGet: { path: /v1/status, port: 8001 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /v1/status, port: 8001 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: raft, mountPath: /raft }
+  volumeClaimTemplates:
+    - metadata: { name: data }        # object data (bulk)
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # storageClassName: bulk-hdd
+        resources: { requests: { storage: 100Gi } }
+    - metadata: { name: raft }        # consensus log (small, SSD, low-latency fsync)
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # storageClassName: fast-ssd
+        resources: { requests: { storage: 5Gi } }
+---
+# ---- credentials for the gateway's root (admin) account ----
+apiVersion: v1
+kind: Secret
+metadata:
+  name: d9ds3-root
+stringData:
+  access-key: admin
+  secret-key: CHANGE-ME-strong-secret
+---
+# ---- gateway tier: stateless S3 frontend ----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: d9ds3-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: d9ds3-gateway
+  template:
+    metadata:
+      labels:
+        app: d9ds3-gateway
+    spec:
+      containers:
+        - name: gateway
+          image: ghcr.io/adi/d9ds3:latest
+          args:
+            - gateway
+            - --s3=:8080
+            - --region=us-east-1
+            # The gateway queries each pod's /v1/status to find shard leaders, so it
+            # needs the individual pod addresses (not the round-robin headless name).
+            # Update this list if you change `replicas`.
+            - --nodes=d9ds3-storage-0.d9ds3-storage:8001,d9ds3-storage-1.d9ds3-storage:8001,d9ds3-storage-2.d9ds3-storage:8001
+            - --root-access-key=$(ROOT_AK)
+            - --root-secret=$(ROOT_SK)
+          env:
+            - name: ROOT_AK
+              valueFrom: { secretKeyRef: { name: d9ds3-root, key: access-key } }
+            - name: ROOT_SK
+              valueFrom: { secretKeyRef: { name: d9ds3-root, key: secret-key } }
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /console, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: d9ds3-gateway
+spec:
+  type: LoadBalancer          # or ClusterIP + Ingress
+  selector:
+    app: d9ds3-gateway
+  ports:
+    - port: 80
+      targetPort: 8080

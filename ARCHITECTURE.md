@@ -180,6 +180,15 @@ the swappable storage engine (v1: `posix`).
 - **Idempotent apply**: FSM tracks the last applied Raft index; `Nonce` guards against
   duplicate submission on gateway retry.
 
+## On-disk layout (two separate roots)
+A storage node keeps two **independent** directories, ideally on separate volumes:
+- **`--data`** — object data only: `vstore/ keys/ buckets/ mpu/ iam/ staging/ mpstaging/`.
+  This is the portable backup/rsync surface.
+- **`--raft-dir`** — node-local consensus state: `shard-<i>/{log.bolt, stable.bolt, snapshots/}`.
+  This is machine-specific; it must **never** be copied between nodes or restored
+  independently (doing so corrupts the Raft cluster). Defaults to `<data>-raft` — a
+  sibling, never nested inside `--data` — so touching the object data can't clobber it.
+
 ## Failure & recovery
 - **Storage node crash**: rejoins, Raft ships it the log tail (or a snapshot +
   tail); FSM re-applies to converge. Missing staged blobs are pulled from a peer.
