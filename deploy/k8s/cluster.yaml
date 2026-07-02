@@ -64,7 +64,7 @@ spec:
                 fi
                 i=$((i+1))
               done
-              COMMON="--id ${HOSTNAME} --data /data --raft-dir /raft \
+              COMMON="--id ${HOSTNAME} --data /data --state-dir /state --raft-dir /raft \
                       --raft 0.0.0.0:9001 --raft-advertise ${SELF}:9001 \
                       --http 0.0.0.0:8001 --shards ${SHARDS} --peers ${PEERS}"
               if [ "$ORD" = "0" ]; then
@@ -84,14 +84,19 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
           volumeMounts:
-            - { name: data, mountPath: /data }
+            - { name: data, mountPath: /data }    # ONLY the browsable object tree (+ xattrs)
+            - { name: state, mountPath: /state }  # versions/history/config/iam/staging
             - { name: raft, mountPath: /raft }
   volumeClaimTemplates:
-    - metadata: { name: data }        # object data (bulk)
+    - metadata: { name: data }        # object data (bulk); the backup/rsync surface
       spec:
         accessModes: ["ReadWriteOnce"]
         # storageClassName: bulk-hdd
         resources: { requests: { storage: 100Gi } }
+    - metadata: { name: state }       # internal bookkeeping (versions can be large)
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 50Gi } }
     - metadata: { name: raft }        # consensus log (small, SSD, low-latency fsync)
       spec:
         accessModes: ["ReadWriteOnce"]

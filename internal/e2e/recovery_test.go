@@ -55,7 +55,7 @@ func TestDownNodeRecovery(t *testing.T) {
 	// After recovery, staging on every node should be drained (payloads were
 	// renamed into vstore on apply, or pulled-then-renamed on the recovered node).
 	for i := 0; i < 3; i++ {
-		assertStagingEmpty(t, h.configs[i].DataDir)
+		assertStagingEmpty(t, h.configs[i].StateDir)
 	}
 }
 
@@ -63,7 +63,7 @@ func TestDownNodeRecovery(t *testing.T) {
 // whose operation never committed).
 func TestStagingGC(t *testing.T) {
 	h := startHarnessOpts(t, 1, hopts{stagingTTL: 2 * time.Second})
-	stagingDir := filepath.Join(h.configs[0].DataDir, ".d9", "staging")
+	stagingDir := filepath.Join(h.configs[0].StateDir, "staging")
 
 	// Simulate an orphan: a staged payload that never got a committed command.
 	orphan := filepath.Join(stagingDir, "orphan-token")
@@ -86,10 +86,10 @@ func TestStagingGC(t *testing.T) {
 	}
 }
 
-func assertStagingEmpty(t *testing.T, dataDir string) {
+func assertStagingEmpty(t *testing.T, stateDir string) {
 	t.Helper()
 	for _, d := range []string{"staging", "mpstaging"} {
-		entries, err := os.ReadDir(filepath.Join(dataDir, ".d9", d))
+		entries, err := os.ReadDir(filepath.Join(stateDir, d))
 		if err != nil {
 			continue
 		}
@@ -98,7 +98,7 @@ func assertStagingEmpty(t *testing.T, dataDir string) {
 			for _, e := range entries {
 				names = append(names, e.Name())
 			}
-			t.Fatalf("%s/%s not drained: %v", dataDir, d, names)
+			t.Fatalf("%s/%s not drained: %v", stateDir, d, names)
 		}
 	}
 }

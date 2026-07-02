@@ -14,87 +14,90 @@ import (
 	"github.com/adi/d9ds3/internal/types"
 )
 
-// ---- KeyMeta helpers ----
+// ---- KeyMeta persistence (split store) ----
+//
+// A key's current version lives as the object file itself with metadata in xattrs.
+// Only keys that carry version history (multiple versions or a delete marker) get
+// a history file in the state root. A prefilled plain file (no xattrs) is served by
+// synthesizing metadata from the file — so a seeded disk just works.
 
+// readKeyMeta assembles a key's history: the state-root history file when present
+// (versioned keys), otherwise a single version built from the object file's xattrs
+// or synthesized from a prefilled file.
 func (b *posixBackend) readKeyMeta(bucket, key string) (*types.KeyMeta, error) {
-	p, err := b.keyMetaPath(bucket, key)
+	hp, err := b.historyPath(bucket, key)
 	if err != nil {
 		return nil, err
 	}
 	var km types.KeyMeta
-	if err := readJSON(p, &km); err != nil {
-		if os.IsNotExist(err) {
-			return nil, s3err.ErrNoSuchKey
-		}
+	if e := readJSON(hp, &km); e == nil {
+		return &km, nil
+	} else if !os.IsNotExist(e) {
+		return nil, e
+	}
+	op, err := b.objectPath(bucket, key)
+	if err != nil {
 		return nil, err
 	}
-	return &km, nil
-}
-
-func (b *posixBackend) writeKeyMeta(km *types.KeyMeta) error {
-	p, err := b.keyMetaPath(km.Bucket, km.Key)
+	cur, synthesized, err := readCurrentMeta(op, bucket, key)
 	if err != nil {
-		return err
+		return nil, s3err.ErrNoSuchKey
 	}
-	return writeJSON(p, *km)
+	return &types.KeyMeta{Bucket: bucket, Key: key, Synthesized: synthesized, Versions: []types.ObjectMeta{*cur}}, nil
 }
 
-func (b *posixBackend) deleteKeyMeta(bucket, key string) error {
-	p, err := b.keyMetaPath(bucket, key)
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
-}
-
-// loadKeyMeta returns a key's history, synthesizing it from a prefilled object
-// file when there is no sidecar (so a disk seeded with plain files just works).
+// loadKeyMeta is an alias for readKeyMeta (kept for call-site clarity).
 func (b *posixBackend) loadKeyMeta(bucket, key string) (*types.KeyMeta, error) {
-	km, err := b.readKeyMeta(bucket, key)
-	if err == nil {
-		return km, nil
-	}
-	if err == s3err.ErrNoSuchKey {
-		if syn := b.synthesizeKeyMeta(bucket, key); syn != nil {
-			return syn, nil
-		}
-	}
-	return nil, err
+	return b.readKeyMeta(bucket, key)
 }
 
-// loadKeyMetaOrNew is loadKeyMeta but returns a fresh empty history if absent.
-// It clears the Synthesized flag: callers are about to apply a replicated write,
-// so the key becomes first-class replicated state (and thus reconciled by restore).
+// loadKeyMetaOrNew returns the key's history or a fresh empty one, clearing the
+// Synthesized flag (the caller is about to apply a replicated write).
 func (b *posixBackend) loadKeyMetaOrNew(bucket, key string) *types.KeyMeta {
-	if km, err := b.loadKeyMeta(bucket, key); err == nil {
+	if km, err := b.readKeyMeta(bucket, key); err == nil {
 		km.Synthesized = false
 		return km
 	}
 	return &types.KeyMeta{Bucket: bucket, Key: key}
 }
 
-// synthesizeKeyMeta builds metadata for a plain object file that has no sidecar
-// (a prefilled file). Returns nil if no such file exists. The result is cached as
-// a sidecar (best-effort) so subsequent reads skip re-hashing.
-func (b *posixBackend) synthesizeKeyMeta(bucket, key string) *types.KeyMeta {
-	op, err := b.objectPath(bucket, key)
+// writeKeyMeta persists a key: the current version's metadata into xattrs on the
+// object file, and a history file only when the key has more than a single live
+// version (else the file + xattrs are self-sufficient).
+func (b *posixBackend) writeKeyMeta(km *types.KeyMeta) error {
+	if cur := km.Latest(); cur != nil && !cur.DeleteMarker && cur.BlobID == "" {
+		op, err := b.objectPath(km.Bucket, km.Key)
+		if err != nil {
+			return err
+		}
+		if err := writeCurrentXattrs(op, cur); err != nil {
+			return err
+		}
+	}
+	hp, err := b.historyPath(km.Bucket, km.Key)
 	if err != nil {
-		return nil
+		return err
 	}
-	fi, err := os.Stat(op)
-	if err != nil || fi.IsDir() {
-		return nil
+	if len(km.Versions) != 1 || km.Versions[0].DeleteMarker {
+		return writeJSON(hp, *km)
 	}
-	km := &types.KeyMeta{Bucket: bucket, Key: key, Synthesized: true, Versions: []types.ObjectMeta{{
-		Bucket: bucket, Key: key, VersionID: "null", BlobID: "",
-		Size: fi.Size(), ETag: md5File(op), ContentType: guessContentType(key),
-		LastModified: fi.ModTime().UTC(), IsLatest: true,
-	}}}
-	b.writeKeyMeta(km) // best-effort cache; ignored on read-only fs
-	return km
+	if e := os.Remove(hp); e != nil && !os.IsNotExist(e) {
+		return e
+	}
+	return nil
+}
+
+// deleteKeyMeta removes a key's history file (the object file is removed by the
+// caller via removeCurrent).
+func (b *posixBackend) deleteKeyMeta(bucket, key string) error {
+	hp, err := b.historyPath(bucket, key)
+	if err != nil {
+		return err
+	}
+	if e := os.Remove(hp); e != nil && !os.IsNotExist(e) {
+		return e
+	}
+	return nil
 }
 
 // physPath returns the on-disk path of a version's bytes: the browsable key file
@@ -458,10 +461,10 @@ func (b *posixBackend) walkObjectTree(bucket string) ([]string, error) {
 	return keys, nil
 }
 
-// walkAllKeys lists every key with history (including delete-marker-current keys)
-// by walking the metadata tree; used for version listings.
+// walkAllKeys lists every key that has a version-history record (including
+// delete-marker-current keys); used for version listings.
 func (b *posixBackend) walkAllKeys(bucket string) ([]string, error) {
-	root := b.idir("objmeta", bucket)
+	root := b.idir("history", bucket)
 	var keys []string
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".json") {

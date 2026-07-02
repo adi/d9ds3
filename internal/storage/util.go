@@ -39,6 +39,19 @@ func guessContentType(key string) string {
 	return "application/octet-stream"
 }
 
+// moveFile moves src to dst, falling back to copy+remove when a plain rename
+// fails (e.g. cross-device, because --data and the state dir may be on separate
+// volumes).
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	if err := copyFile(src, dst); err != nil {
+		return err
+	}
+	return os.Remove(src)
+}
+
 // copyFile copies src to dst atomically via a temp file + rename.
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)

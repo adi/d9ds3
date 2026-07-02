@@ -21,7 +21,11 @@ import (
 // Config configures a storage node.
 type Config struct {
 	NodeID  string // unique id, also the Raft ServerID
-	DataDir string // object data root (vstore/keys/buckets/mpu/iam/staging) — the backup/rsync surface
+	DataDir string // object data root — ONLY the browsable object tree (metadata in xattrs)
+	// StateDir holds internal bookkeeping kept OUT of DataDir: non-current version
+	// blobs, version history, bucket configs, in-flight multipart, staging, IAM.
+	// If empty, defaults to "<DataDir>-state" (a sibling, never nested in DataDir).
+	StateDir string
 	// RaftDir holds node-local Raft consensus state (log/stable BoltDB + snapshots).
 	// It is deliberately SEPARATE from DataDir: it must never be copied between nodes
 	// or restored independently. If empty, defaults to "<DataDir>-raft" (a sibling,
@@ -81,7 +85,10 @@ func NewNode(cfg Config) (*Node, error) {
 		// object data can't touch Raft consensus state.
 		cfg.RaftDir = filepath.Clean(cfg.DataDir) + "-raft"
 	}
-	backend, err := newPosixBackend(cfg.DataDir)
+	if cfg.StateDir == "" {
+		cfg.StateDir = filepath.Clean(cfg.DataDir) + "-state"
+	}
+	backend, err := newPosixBackend(cfg.DataDir, cfg.StateDir)
 	if err != nil {
 		return nil, err
 	}

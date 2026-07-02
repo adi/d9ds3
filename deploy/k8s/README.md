@@ -8,9 +8,16 @@ Two examples:
   Service for peer discovery, plus a stateless gateway `Deployment`. Quorum
   durability, survives a node loss.
 
-Both keep **object data** (`--data`) and **Raft consensus state** (`--raft-dir`) on
-separate volumes: `--data` is the portable backup/rsync surface; `--raft-dir` is
-node-local and must never be copied between nodes or restored independently.
+Three volumes per node, each independent:
+- **`--data`** — ONLY the browsable object tree; object metadata is stored in
+  **extended attributes** on the files. It's the portable backup/rsync surface
+  (`rsync -X`/`tar --xattrs` to carry metadata; a plain copy still works, metadata
+  is re-synthesized). The `--data` filesystem must support user xattrs — ext4/xfs
+  (and most CSI block volumes) do.
+- **`--state-dir`** — internal bookkeeping (versions/history/config/iam/staging),
+  kept out of `--data`.
+- **`--raft-dir`** — node-local consensus state; never copy between nodes or restore
+  independently.
 
 ## Container image
 

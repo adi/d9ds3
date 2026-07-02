@@ -13,7 +13,7 @@ import (
 
 func mkBackend(t *testing.T) *posixBackend {
 	t.Helper()
-	b, err := newPosixBackend(t.TempDir())
+	b, err := newPosixBackend(t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatalf("newPosixBackend: %v", err)
 	}

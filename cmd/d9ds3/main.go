@@ -49,6 +49,7 @@ func runStorage(args []string) {
 	id := fs.String("id", "", "unique node id (Raft ServerID)")
 	data := fs.String("data", "", "object data directory (the backup/rsync surface)")
 	raftDir := fs.String("raft-dir", "", "Raft consensus state dir — node-local, keep on its own volume (default: <data>-raft)")
+	stateDir := fs.String("state-dir", "", "internal bookkeeping dir kept out of --data (default: <data>-state)")
 	raftBind := fs.String("raft", "127.0.0.1:9001", "Raft transport bind addr")
 	raftAdv := fs.String("raft-advertise", "", "Raft advertise addr (defaults to --raft)")
 	httpBind := fs.String("http", "127.0.0.1:8001", "data-plane HTTP bind addr")
@@ -63,7 +64,7 @@ func runStorage(args []string) {
 		log.Fatal("storage: --id and --data are required")
 	}
 	node, err := storage.NewNode(storage.Config{
-		NodeID: *id, DataDir: *data, RaftDir: *raftDir, RaftBind: *raftBind, RaftAdvertise: *raftAdv,
+		NodeID: *id, DataDir: *data, RaftDir: *raftDir, StateDir: *stateDir, RaftBind: *raftBind, RaftAdvertise: *raftAdv,
 		HTTPBind: *httpBind, Bootstrap: *bootstrap, JoinAddr: *join, Peers: splitCSV(*peers),
 		Shards: *shards, StagingTTL: *stagingTTL,
 	})
@@ -124,6 +125,7 @@ func runStandalone(args []string) {
 	s3addr := fs.String("s3", ":8080", "S3 API listen addr")
 	data := fs.String("data", "", "object data directory")
 	raftDir := fs.String("raft-dir", "", "Raft state dir (default: <data>-raft)")
+	stateDir := fs.String("state-dir", "", "internal bookkeeping dir (default: <data>-state)")
 	region := fs.String("region", "us-east-1", "S3 signing region")
 	events := fs.String("events", "", "event-notification target (http(s)://... or file:///...)")
 	rootAK := fs.String("root-access-key", "", "bootstrap root (admin) access key")
@@ -136,7 +138,7 @@ func runStandalone(args []string) {
 	}
 	// Internal, loopback-only storage node (single-node bootstrap, one shard).
 	node, err := storage.NewNode(storage.Config{
-		NodeID: "standalone", DataDir: *data, RaftDir: *raftDir,
+		NodeID: "standalone", DataDir: *data, RaftDir: *raftDir, StateDir: *stateDir,
 		RaftBind: "127.0.0.1:9001", HTTPBind: "127.0.0.1:8001",
 		Bootstrap: true, Shards: 1,
 	})

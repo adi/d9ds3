@@ -181,30 +181,38 @@ the swappable storage engine (v1: `posix`).
   duplicate submission on gateway retry.
 
 ## On-disk layout — a 1:1 POSIX mapping (like versitygw)
-An object `bucket/dir/key` is a **plain, browsable file** at `<data>/bucket/dir/key`
-— the file *is* the object (no opaque content store for current data). You can
-`ls`/`cat`/`rsync` the tree, and a disk **pre-seeded** with folders-of-files is served
-as-is (bucket = top-level directory, object = file; metadata is synthesized from the
-file — size from `stat`, ETag from its MD5, content-type from the extension).
+An object `bucket/dir/key` is a **plain, browsable file** at `<data>/bucket/dir/key`,
+carrying its S3 metadata (etag, content-type, user-metadata, tags, ACL, retention,
+legal-hold, version-id) in **extended attributes** (`user.d9ds3.*`) — versitygw-style.
+The `--data` volume contains **nothing but the object tree**: no sidecars, no hidden
+dirs. You can `ls`/`cat`/`rsync` it, and a disk **pre-seeded** with folders-of-files
+is served as-is (bucket = top-level directory, object = file). A plain file with no
+xattrs (a naive prefill, or an `rsync` that dropped xattrs) still works — metadata is
+synthesized from the file (size from `stat`, ETag from its MD5, content-type from the
+extension); xattrs are an enrichment, never a requirement.
 
-**Prefilled data is never destroyed by the system.** Snapshot install (Raft
-`InstallSnapshot`) reconciles only *replicated* keys (those written through the log,
-which carry real metadata); prefilled files — a plain file with no/synthesized
-metadata — are always preserved. The only thing that removes operator-provided data
-is an explicit S3 delete. (`DeleteBucket` likewise refuses a bucket that still holds
-prefilled files.) Note: prefill is node-local; for cluster-wide consistency seed the
-same tree on each node, or prefill one node and let snapshots carry it to the rest.
+**Prefilled data is never destroyed by the system.** Files written through S3 carry
+a managed marker xattr; snapshot install (Raft `InstallSnapshot`) reconciles only
+those *replicated* files, while prefilled plain files (no managed xattr) are always
+preserved. The only thing that removes operator-provided data is an explicit S3
+delete. (`DeleteBucket` likewise refuses a bucket that still holds prefilled files.)
+Note: prefill is node-local; for cluster-wide consistency seed the same tree on each
+node, or prefill one node and let snapshots carry it to the rest.
 
-Two independent roots, ideally on separate volumes:
-- **`--data`** — the browsable object tree, plus a hidden `.d9/` for internals:
-  `.d9/versions/` (non-current version payloads only), `.d9/objmeta/` (metadata
-  sidecars, synthesized if missing), `.d9/buckets/`, `.d9/mpu/`, `.d9/staging/`,
-  `.d9/iam/`. Back up / rsync `<data>` and you get the real files; `.d9` rides along
-  but the objects stand on their own. (`.d9` can't collide with a bucket — `.` is an
-  illegal S3 bucket-name start.)
+Three independent roots (each may be its own volume):
+- **`--data`** — ONLY the browsable object tree (files + xattrs). This is the
+  backup/rsync surface; nothing internal ever lands here.
+- **`--state-dir`** — internal bookkeeping kept out of `--data`: `versions/`
+  (non-current version payloads), `history/` (version history, only for versioned
+  keys), `buckets/` (bucket config), `mpu/` (in-flight multipart), `staging/` +
+  `mpstaging/` (pre-commit fan-out buffers), `iam/`. Durable, node-local. Defaults to
+  `<data>-state`.
 - **`--raft-dir`** — node-local consensus state: `shard-<i>/{log.bolt, stable.bolt,
   snapshots/}`. Machine-specific; **never** copy between nodes or restore
-  independently. Defaults to `<data>-raft` — a sibling, never nested in `--data`.
+  independently. Defaults to `<data>-raft`.
+
+Moves between `--data` and `--state-dir` fall back to copy+remove when they're on
+different volumes (cross-device), so you can put them on separate PVCs.
 
 ## Failure & recovery
 - **Storage node crash**: rejoins, Raft ships it the log tail (or a snapshot +

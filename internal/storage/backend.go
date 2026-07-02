@@ -21,41 +21,37 @@ import (
 // peer before retrying Apply.
 var ErrBlobMissing = errors.New("staged blob missing")
 
-// internalDir holds all node-internal state; the rest of the data root is the
-// browsable 1:1 object tree. "." is illegal as an S3 bucket name, so ".d9" can
-// never collide with a bucket.
-const internalDir = ".d9"
-
 // posixBackend is the local storage engine (the LocalBackend). It keeps a 1:1
 // POSIX mapping like versitygw — an object "bucket/dir/key" is a real, browsable
-// file at "<data>/bucket/dir/key" — while internal state lives under "<data>/.d9".
-// On-disk layout:
+// file at "<data>/bucket/dir/key", carrying its S3 metadata in extended
+// attributes. The --data volume contains NOTHING but the object tree; all internal
+// bookkeeping lives in a separate state root. On-disk layout:
 //
-//	<bucket>/<key>                      CURRENT object bytes — a plain file at its
-//	                                    natural path. Browse/rsync this tree directly;
-//	                                    a disk pre-seeded with such files just works.
-//	.d9/versions/<bucket>/<blobid>.blob NON-current version payloads only
-//	.d9/objmeta/<bucket>/<key>.json     KeyMeta sidecar (version history + metadata);
-//	                                    synthesized from the file when absent
-//	.d9/buckets/<bucket>.json           BucketMeta: existence marker + bucket config
-//	.d9/mpu/<bucket>/<uploadid>.json    in-progress MultipartUpload metadata
-//	.d9/staging/<token>                 object payloads fanned out, awaiting commit
-//	.d9/mpstaging/<uploadid>__<part>    multipart part payloads, awaiting complete
-//	.d9/iam/accounts.json               replicated IAM accounts
+//	<data>/<bucket>/<key>               object bytes + metadata in xattrs (user.d9ds3.*)
+//	<state>/versions/<bucket>/<blobid>.blob   NON-current version payloads
+//	<state>/history/<bucket>/<key>.json       version history (only for versioned keys)
+//	<state>/buckets/<bucket>.json             bucket configuration
+//	<state>/mpu/<bucket>/<uploadid>.json      in-progress multipart uploads
+//	<state>/staging|mpstaging/...             pre-commit fan-out buffers
+//	<state>/iam/accounts.json                 replicated IAM accounts
 type posixBackend struct {
-	root string
-	iam  *iamStore
-	mu   sync.Mutex // serializes Apply against snapshot Persist/Restore
+	root  string // data root: the browsable object tree
+	state string // state root: all internal bookkeeping (kept out of --data)
+	iam   *iamStore
+	mu    sync.Mutex // serializes Apply against snapshot Persist/Restore
 }
 
-func newPosixBackend(root string) (*posixBackend, error) {
-	for _, d := range []string{"staging", "mpstaging", "versions", "buckets", "objmeta", "mpu", "iam"} {
-		if err := os.MkdirAll(filepath.Join(root, internalDir, d), 0o755); err != nil {
+func newPosixBackend(dataRoot, stateRoot string) (*posixBackend, error) {
+	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
+		return nil, err
+	}
+	for _, d := range []string{"staging", "mpstaging", "versions", "history", "buckets", "mpu", "iam"} {
+		if err := os.MkdirAll(filepath.Join(stateRoot, d), 0o755); err != nil {
 			return nil, err
 		}
 	}
-	b := &posixBackend{root: root}
-	b.iam = newIAMStore(filepath.Join(root, internalDir, "iam", "accounts.json"))
+	b := &posixBackend{root: dataRoot, state: stateRoot}
+	b.iam = newIAMStore(filepath.Join(stateRoot, "iam", "accounts.json"))
 	if err := b.iam.load(); err != nil {
 		return nil, err
 	}
@@ -65,7 +61,7 @@ func newPosixBackend(root string) (*posixBackend, error) {
 // ---- path helpers ----
 
 func (b *posixBackend) idir(parts ...string) string {
-	return filepath.Join(append([]string{b.root, internalDir}, parts...)...)
+	return filepath.Join(append([]string{b.state}, parts...)...)
 }
 func (b *posixBackend) stagingPath(token string) string { return b.idir("staging", token) }
 func (b *posixBackend) mpPartPath(uploadID string, part int) string {
@@ -81,9 +77,9 @@ func (b *posixBackend) mpuMetaPath(bucket, uploadID string) string {
 	return b.idir("mpu", bucket, uploadID+".json")
 }
 
-// keyMetaPath maps bucket/key to the KeyMeta sidecar, rejecting path traversal.
-func (b *posixBackend) keyMetaPath(bucket, key string) (string, error) {
-	base := b.idir("objmeta", bucket)
+// historyPath maps bucket/key to its version-history file, rejecting path traversal.
+func (b *posixBackend) historyPath(bucket, key string) (string, error) {
+	base := b.idir("history", bucket)
 	full := filepath.Join(base, filepath.FromSlash(key)+".json")
 	if !strings.HasPrefix(full, base+string(os.PathSeparator)) {
 		return "", s3err.ErrInvalidKey
@@ -103,9 +99,9 @@ func (b *posixBackend) objectPath(bucket, key string) (string, error) {
 
 // ---- physical object-file operations ----
 //
-// The CURRENT version of a key is stored as a plain file at <bucket>/<key>
+// The CURRENT version of a key is stored as a plain file at <data>/<bucket>/<key>
 // (BlobID==""), so the data root is a browsable, prefill-able 1:1 tree. Only
-// NON-current versions are moved into the .d9/versions content store.
+// NON-current versions are moved into the state root's versions store.
 
 // putCurrentBytes installs src (a staged temp file) as the current object file.
 func (b *posixBackend) putCurrentBytes(bucket, key, src string) error {
@@ -116,7 +112,7 @@ func (b *posixBackend) putCurrentBytes(bucket, key, src string) error {
 	if err := os.MkdirAll(filepath.Dir(op), 0o755); err != nil {
 		return err
 	}
-	return os.Rename(src, op) // atomic overwrite
+	return moveFile(src, op) // atomic overwrite
 }
 
 // archiveCurrent moves the current object file into the version store under vid.
@@ -128,7 +124,7 @@ func (b *posixBackend) archiveCurrent(bucket, key, vid string) error {
 	if err := os.MkdirAll(b.idir("versions", bucket), 0o755); err != nil {
 		return err
 	}
-	return os.Rename(op, b.vblobPath(bucket, vid))
+	return moveFile(op, b.vblobPath(bucket, vid))
 }
 
 // promoteArchived moves an archived version back to the current object file.
@@ -140,7 +136,7 @@ func (b *posixBackend) promoteArchived(bucket, key, vid string) error {
 	if err := os.MkdirAll(filepath.Dir(op), 0o755); err != nil {
 		return err
 	}
-	return os.Rename(b.vblobPath(bucket, vid), op)
+	return moveFile(b.vblobPath(bucket, vid), op)
 }
 
 // removeCurrent deletes the current object file and prunes emptied parent dirs.
@@ -222,7 +218,7 @@ func (b *posixBackend) Apply(c *command.Command) error {
 // ---- buckets ----
 
 func (b *posixBackend) applyCreateBucket(c *command.Command) error {
-	if c.Bucket == internalDir || strings.ContainsAny(c.Bucket, "/\\") {
+	if c.Bucket == "" || strings.ContainsAny(c.Bucket, "/\\") {
 		return s3err.ErrInvalidBucketName
 	}
 	if _, err := os.Stat(b.bucketMetaPath(c.Bucket)); err == nil {
@@ -250,7 +246,7 @@ func (b *posixBackend) applyCreateBucket(c *command.Command) error {
 	for _, d := range []string{
 		filepath.Join(b.root, c.Bucket), // browsable object tree
 		b.idir("versions", c.Bucket),
-		b.idir("objmeta", c.Bucket),
+		b.idir("history", c.Bucket),
 		b.idir("mpu", c.Bucket),
 	} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -263,12 +259,12 @@ func (b *posixBackend) applyCreateBucket(c *command.Command) error {
 func (b *posixBackend) applyDeleteBucket(c *command.Command) error {
 	// A bucket is deletable only when it holds no objects — neither replicated keys
 	// (metadata present, including delete markers) nor prefilled files on disk.
-	if files, _ := b.walkObjectTree(c.Bucket); len(files) > 0 || !dirEmpty(b.idir("objmeta", c.Bucket)) {
+	if files, _ := b.walkObjectTree(c.Bucket); len(files) > 0 || !dirEmpty(b.idir("history", c.Bucket)) {
 		return s3err.ErrBucketNotEmpty
 	}
 	os.RemoveAll(filepath.Join(b.root, c.Bucket))
 	os.RemoveAll(b.idir("versions", c.Bucket))
-	os.RemoveAll(b.idir("objmeta", c.Bucket))
+	os.RemoveAll(b.idir("history", c.Bucket))
 	os.RemoveAll(b.idir("mpu", c.Bucket))
 	if err := os.Remove(b.bucketMetaPath(c.Bucket)); err != nil && !os.IsNotExist(err) {
 		return err
@@ -333,7 +329,7 @@ func (b *posixBackend) readBucketMeta(bucket string) (*types.BucketMeta, error) 
 		return &m, nil
 	}
 	// Prefill support: a plain top-level directory is a bucket with default config.
-	if bucket != internalDir && bucket != "" {
+	if bucket != "" && !strings.ContainsAny(bucket, "/\\") {
 		if fi, err := os.Stat(filepath.Join(b.root, bucket)); err == nil && fi.IsDir() {
 			return &types.BucketMeta{Name: bucket, CreatedAt: fi.ModTime().UTC(), Ownership: "BucketOwnerEnforced"}, nil
 		}
@@ -365,7 +361,7 @@ func (b *posixBackend) ListBuckets() ([]types.BucketMeta, error) {
 	// Prefilled buckets: plain top-level directories with no sidecar.
 	if entries, err := os.ReadDir(b.root); err == nil {
 		for _, e := range entries {
-			if !e.IsDir() || e.Name() == internalDir || seen[e.Name()] {
+			if !e.IsDir() || seen[e.Name()] {
 				continue
 			}
 			created := time.Time{}

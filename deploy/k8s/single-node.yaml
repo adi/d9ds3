@@ -27,6 +27,16 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  name: d9ds3-state         # internal bookkeeping (versions/history/config/iam/staging)
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
   name: d9ds3-raft          # Raft consensus state — small, fsync-heavy (put on SSD)
 spec:
   accessModes: ["ReadWriteOnce"]
@@ -58,6 +68,7 @@ spec:
             - standalone
             - --s3=:8080
             - --data=/data
+            - --state-dir=/state
             - --raft-dir=/raft
             - --region=us-east-1
             - --root-access-key=$(ROOT_AK)
@@ -78,11 +89,14 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
           volumeMounts:
-            - { name: data, mountPath: /data }
+            - { name: data, mountPath: /data }    # ONLY the browsable object tree (+ xattrs)
+            - { name: state, mountPath: /state }  # versions/history/config/iam/staging
             - { name: raft, mountPath: /raft }
       volumes:
         - name: data
           persistentVolumeClaim: { claimName: d9ds3-data }
+        - name: state
+          persistentVolumeClaim: { claimName: d9ds3-state }
         - name: raft
           persistentVolumeClaim: { claimName: d9ds3-raft }
 ---
