@@ -53,7 +53,7 @@ spec:
     spec:
       containers:
         - name: d9ds3
-          image: ghcr.io/adi/d9ds3:latest
+          image: ghcr.io/adi/d9ds3:latest   # GHCR, CI-published on tag; pin e.g. :0.1.0
           args:
             - standalone
             - --s3=:8080

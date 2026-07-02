@@ -12,11 +12,21 @@ Both keep **object data** (`--data`) and **Raft consensus state** (`--raft-dir`)
 separate volumes: `--data` is the portable backup/rsync surface; `--raft-dir` is
 node-local and must never be copied between nodes or restored independently.
 
-## Build & push the image
-```sh
-docker build -t ghcr.io/adi/d9ds3:latest .
-docker push ghcr.io/adi/d9ds3:latest
-```
+## Container image
+
+The manifests pull **`ghcr.io/adi/d9ds3`** from GitHub Container Registry. Images are
+published automatically by the `release` GitHub Action on every `v*` tag
+(`.github/workflows/release.yml`), multi-arch for `linux/amd64` + `linux/arm64`.
+
+Available tags: `latest`, plus `X.Y.Z` / `X.Y` / `vX.Y.Z` per release (e.g. `0.1.0`).
+The manifests default to `:latest`; **pin to a version** (e.g. `ghcr.io/adi/d9ds3:0.1.0`)
+for reproducible deploys.
+
+Two one-time notes:
+- The GHCR package may be **private** — either make it public (GitHub → the `d9ds3`
+  package → Package settings → Change visibility → Public) or add an
+  `imagePullSecret` referencing a GHCR token to the pod specs.
+- To build/push manually instead of via CI: `docker build -t ghcr.io/adi/d9ds3:dev . && docker push ghcr.io/adi/d9ds3:dev`.
 
 ## Deploy
 ```sh
