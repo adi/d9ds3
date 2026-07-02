@@ -359,9 +359,14 @@ func (n *Node) pullBlob(c *command.Command) error {
 			}
 		}
 		return nil
-	default: // OpPutObject
+	default: // OpPutObject: pull the committed object bytes for this version.
 		dst := n.backend.stagingPath(c.BlobToken)
-		return n.pullFromPeers(dst, fmt.Sprintf("/v1/vblob?bucket=%s&blobid=%s", urlq(c.Bucket), urlq(c.BlobToken)))
+		version := ""
+		if bm, err := n.backend.readBucketMeta(c.Bucket); err == nil && bm.VersioningEnabled() {
+			version = c.VersionID
+		}
+		return n.pullFromPeers(dst, fmt.Sprintf("/v1/object?bucket=%s&key=%s&version=%s",
+			urlq(c.Bucket), urlq(c.Key), urlq(version)))
 	}
 }
 

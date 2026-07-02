@@ -63,7 +63,7 @@ func TestDownNodeRecovery(t *testing.T) {
 // whose operation never committed).
 func TestStagingGC(t *testing.T) {
 	h := startHarnessOpts(t, 1, hopts{stagingTTL: 2 * time.Second})
-	stagingDir := filepath.Join(h.configs[0].DataDir, "staging")
+	stagingDir := filepath.Join(h.configs[0].DataDir, ".d9", "staging")
 
 	// Simulate an orphan: a staged payload that never got a committed command.
 	orphan := filepath.Join(stagingDir, "orphan-token")
@@ -89,7 +89,7 @@ func TestStagingGC(t *testing.T) {
 func assertStagingEmpty(t *testing.T, dataDir string) {
 	t.Helper()
 	for _, d := range []string{"staging", "mpstaging"} {
-		entries, err := os.ReadDir(filepath.Join(dataDir, d))
+		entries, err := os.ReadDir(filepath.Join(dataDir, ".d9", d))
 		if err != nil {
 			continue
 		}

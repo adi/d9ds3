@@ -118,12 +118,8 @@ func (b *posixBackend) applyCompleteMultipart(c *command.Command) error {
 		}
 	}
 
-	// Assemble the object blob and compute the multipart ETag.
-	if err := os.MkdirAll(filepath.Join(b.root, "vstore", c.Bucket), 0o755); err != nil {
-		return err
-	}
-	dst := b.vblobPath(c.Bucket, c.BlobToken)
-	tmp := dst + ".d9tmp"
+	// Assemble the parts into a staging temp, computing the multipart ETag.
+	tmp := b.stagingPath(c.BlobToken)
 	out, err := os.Create(tmp)
 	if err != nil {
 		return err
@@ -153,23 +149,28 @@ func (b *posixBackend) applyCompleteMultipart(c *command.Command) error {
 		os.Remove(tmp)
 		return err
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		return err
-	}
 	etag := `"` + hex.EncodeToString(digest.Sum(nil)) + "-" + strconv.Itoa(len(ordered)) + `"`
 
+	// Install the assembled object as the new current version (browsable key file).
+	km := b.loadKeyMetaOrNew(c.Bucket, c.Key)
+	if err := b.displaceCurrent(km, bm.VersioningEnabled()); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := b.putCurrentBytes(c.Bucket, c.Key, tmp); err != nil {
+		return err
+	}
+	vid := "null"
+	if bm.VersioningEnabled() {
+		vid = c.VersionID
+	}
 	nv := types.ObjectMeta{
-		Bucket: c.Bucket, Key: c.Key, VersionID: c.VersionID, BlobID: c.BlobToken,
+		Bucket: c.Bucket, Key: c.Key, VersionID: vid, BlobID: "",
 		ETag: etag, Size: total, ContentType: mp.ContentType, UserMeta: mp.UserMeta,
 		StorageClass: mp.StorageClass, LastModified: mtime(c), ACL: mp.ACL,
 	}
 	applyLockDefaults(bm, &nv, c)
-
-	km, err := b.readKeyMeta(c.Bucket, c.Key)
-	if err != nil {
-		km = &types.KeyMeta{Bucket: c.Bucket, Key: c.Key}
-	}
-	b.insertVersion(km, nv, bm.VersioningEnabled())
+	prependLatest(km, nv)
 	if err := b.writeKeyMeta(km); err != nil {
 		return err
 	}

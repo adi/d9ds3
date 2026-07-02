@@ -1,12 +1,43 @@
 package storage
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"io"
+	"mime"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// md5File computes the quoted MD5 (S3 ETag) of a file's contents. Used to derive
+// an ETag for a prefilled object that has no metadata sidecar.
+func md5File(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return `"` + hex.EncodeToString(h.Sum(nil)) + `"`
+}
+
+// guessContentType infers a content type from a key's extension.
+func guessContentType(key string) string {
+	if ct := mime.TypeByExtension(filepath.Ext(key)); ct != "" {
+		if i := strings.IndexByte(ct, ';'); i >= 0 {
+			return strings.TrimSpace(ct[:i])
+		}
+		return ct
+	}
+	return "application/octet-stream"
+}
 
 // copyFile copies src to dst atomically via a temp file + rename.
 func copyFile(src, dst string) error {

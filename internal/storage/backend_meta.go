@@ -14,7 +14,7 @@ type objMetaMut func(v *types.ObjectMeta, c *command.Command) error
 // applyObjectMetaMutation locates the target version (specified or latest) and
 // applies mut, then persists the key's history.
 func (b *posixBackend) applyObjectMetaMutation(c *command.Command, mut objMetaMut) error {
-	km, err := b.readKeyMeta(c.Bucket, c.Key)
+	km, err := b.loadKeyMeta(c.Bucket, c.Key)
 	if err != nil {
 		return err
 	}

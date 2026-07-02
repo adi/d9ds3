@@ -17,7 +17,7 @@ const DefaultStagingTTL = 15 * time.Minute
 func (b *posixBackend) sweepStaging(maxAge time.Duration, now time.Time) int {
 	removed := 0
 	for _, dir := range []string{"staging", "mpstaging"} {
-		root := filepath.Join(b.root, dir)
+		root := b.idir(dir)
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			continue

@@ -7,49 +7,52 @@ import (
 	"path/filepath"
 )
 
-// snapshotDirs are the on-disk trees that constitute the full replicated dataset.
-// (staging/ and mpstaging/ hold pre-commit payloads and are intentionally excluded.)
-var snapshotDirs = []string{"buckets", "keys", "vstore", "mpu", "iam"}
+// snapshotSkip are pre-commit payload dirs excluded from snapshots (relative to root).
+var snapshotSkip = map[string]bool{
+	filepath.Join(internalDir, "staging"):   true,
+	filepath.Join(internalDir, "mpstaging"): true,
+}
 
-// snapshotTo streams the full local dataset as a tar archive. It holds the backend
-// lock so no Apply interleaves, yielding a point-in-time consistent snapshot.
+// snapshotTo streams the full local dataset (the browsable object trees plus .d9,
+// minus pre-commit staging) as a tar archive. It holds the backend lock so no
+// Apply interleaves, yielding a point-in-time consistent snapshot.
 func (b *posixBackend) snapshotTo(w io.Writer) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	tw := tar.NewWriter(w)
-	for _, dir := range snapshotDirs {
-		root := filepath.Join(b.root, dir)
-		err := filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
-			if err != nil {
-				if os.IsNotExist(err) {
-					return nil
-				}
-				return err
-			}
-			if fi.IsDir() {
-				return nil
-			}
-			rel, err := filepath.Rel(b.root, path)
-			if err != nil {
-				return err
-			}
-			hdr := &tar.Header{Name: filepath.ToSlash(rel), Mode: 0o644, Size: fi.Size(), Typeflag: tar.TypeReg}
-			if err := tw.WriteHeader(hdr); err != nil {
-				return err
-			}
-			f, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-			_, cErr := io.Copy(tw, f)
-			f.Close()
-			return cErr
-		})
+	err := filepath.Walk(b.root, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
-			tw.Close()
 			return err
 		}
+		rel, err := filepath.Rel(b.root, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if snapshotSkip[rel] {
+			return filepath.SkipDir
+		}
+		if fi.IsDir() {
+			return nil
+		}
+		hdr := &tar.Header{Name: filepath.ToSlash(rel), Mode: 0o644, Size: fi.Size(), Typeflag: tar.TypeReg}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		_, cErr := io.Copy(tw, f)
+		f.Close()
+		return cErr
+	})
+	if err != nil {
+		tw.Close()
+		return err
 	}
 	return tw.Close()
 }
@@ -59,12 +62,13 @@ func (b *posixBackend) restoreFrom(r io.Reader) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Clear the existing dataset trees, then recreate them empty.
-	for _, dir := range snapshotDirs {
-		if err := os.RemoveAll(filepath.Join(b.root, dir)); err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Join(b.root, dir), 0o755); err != nil {
+	// Clear everything except the pre-commit staging dirs, then recreate them.
+	entries, _ := os.ReadDir(b.root)
+	for _, e := range entries {
+		os.RemoveAll(filepath.Join(b.root, e.Name()))
+	}
+	for _, d := range []string{"staging", "mpstaging", "versions", "buckets", "objmeta", "mpu", "iam"} {
+		if err := os.MkdirAll(filepath.Join(b.root, internalDir, d), 0o755); err != nil {
 			return err
 		}
 	}

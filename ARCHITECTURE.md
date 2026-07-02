@@ -180,14 +180,23 @@ the swappable storage engine (v1: `posix`).
 - **Idempotent apply**: FSM tracks the last applied Raft index; `Nonce` guards against
   duplicate submission on gateway retry.
 
-## On-disk layout (two separate roots)
-A storage node keeps two **independent** directories, ideally on separate volumes:
-- **`--data`** — object data only: `vstore/ keys/ buckets/ mpu/ iam/ staging/ mpstaging/`.
-  This is the portable backup/rsync surface.
-- **`--raft-dir`** — node-local consensus state: `shard-<i>/{log.bolt, stable.bolt, snapshots/}`.
-  This is machine-specific; it must **never** be copied between nodes or restored
-  independently (doing so corrupts the Raft cluster). Defaults to `<data>-raft` — a
-  sibling, never nested inside `--data` — so touching the object data can't clobber it.
+## On-disk layout — a 1:1 POSIX mapping (like versitygw)
+An object `bucket/dir/key` is a **plain, browsable file** at `<data>/bucket/dir/key`
+— the file *is* the object (no opaque content store for current data). You can
+`ls`/`cat`/`rsync` the tree, and a disk **pre-seeded** with folders-of-files is served
+as-is (bucket = top-level directory, object = file; metadata is synthesized from the
+file — size from `stat`, ETag from its MD5, content-type from the extension).
+
+Two independent roots, ideally on separate volumes:
+- **`--data`** — the browsable object tree, plus a hidden `.d9/` for internals:
+  `.d9/versions/` (non-current version payloads only), `.d9/objmeta/` (metadata
+  sidecars, synthesized if missing), `.d9/buckets/`, `.d9/mpu/`, `.d9/staging/`,
+  `.d9/iam/`. Back up / rsync `<data>` and you get the real files; `.d9` rides along
+  but the objects stand on their own. (`.d9` can't collide with a bucket — `.` is an
+  illegal S3 bucket-name start.)
+- **`--raft-dir`** — node-local consensus state: `shard-<i>/{log.bolt, stable.bolt,
+  snapshots/}`. Machine-specific; **never** copy between nodes or restore
+  independently. Defaults to `<data>-raft` — a sibling, never nested in `--data`.
 
 ## Failure & recovery
 - **Storage node crash**: rejoins, Raft ships it the log tail (or a snapshot +
