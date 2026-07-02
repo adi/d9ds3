@@ -291,6 +291,19 @@ func (n *Node) submitTo(shardIdx int, raw []byte) (uint64, error) {
 	return f.Index(), nil
 }
 
+// ready reports whether this node is a functioning member: every shard it belongs
+// to currently sees a leader (so it is connected to a quorum, not un-joined or
+// stuck mid-election). Peer discovery is unaffected — the headless Service uses
+// publishNotReadyAddresses, and the gateway addresses pods by DNS directly.
+func (n *Node) ready() bool {
+	for _, sh := range n.shards {
+		if addr, _ := sh.raft.LeaderWithID(); addr == "" {
+			return false
+		}
+	}
+	return len(n.shards) > 0
+}
+
 func (n *Node) status() types.Status {
 	st := types.Status{NodeID: n.cfg.NodeID, NumShards: n.cfg.Shards}
 	for _, sh := range n.shards {

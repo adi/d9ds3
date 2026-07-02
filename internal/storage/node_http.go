@@ -28,6 +28,8 @@ func (n *Node) routes() http.Handler {
 	mux := http.NewServeMux()
 	// control plane
 	mux.HandleFunc("GET /v1/status", n.handleStatus)
+	mux.HandleFunc("GET /v1/healthz", n.handleHealthz)
+	mux.HandleFunc("GET /v1/readyz", n.handleReadyz)
 	mux.HandleFunc("POST /v1/join", n.handleJoin)
 	mux.HandleFunc("POST /v1/rebalance", n.handleRebalance)
 	mux.HandleFunc("POST /v1/command", n.handleCommand)
@@ -56,6 +58,20 @@ func (n *Node) routes() http.Handler {
 
 func (n *Node) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSONResp(w, http.StatusOK, n.status())
+}
+
+// handleHealthz is liveness: the process is up.
+func (n *Node) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleReadyz is readiness: this node is a functioning Raft member.
+func (n *Node) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if n.ready() {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Error(w, "not ready", http.StatusServiceUnavailable)
 }
 
 // handleJoin adds the joining node as a voter in EVERY shard. Each shard's peer

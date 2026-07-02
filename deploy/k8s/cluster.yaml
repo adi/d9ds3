@@ -75,12 +75,12 @@ spec:
           ports:
             - { name: dataplane, containerPort: 8001 }
             - { name: raft,      containerPort: 9001 }
-          readinessProbe:
-            httpGet: { path: /v1/status, port: 8001 }
+          readinessProbe:               # Ready only when this node sees a leader in every shard
+            httpGet: { path: /v1/readyz, port: 8001 }
             initialDelaySeconds: 3
             periodSeconds: 5
-          livenessProbe:
-            httpGet: { path: /v1/status, port: 8001 }
+          livenessProbe:                # process-alive
+            httpGet: { path: /v1/healthz, port: 8001 }
             initialDelaySeconds: 10
             periodSeconds: 10
           volumeMounts:
