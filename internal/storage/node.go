@@ -57,6 +57,7 @@ type shard struct {
 	advertise   raft.ServerAddress
 	logStore    *raftboltdb.BoltStore
 	stableStore *raftboltdb.BoltStore
+	fresh       bool // true when this shard had no persisted state at startup
 }
 
 // Node is one storage replica: a member of every Raft shard whose FSMs apply the
@@ -167,30 +168,59 @@ func (n *Node) startShard(i int) (*shard, error) {
 		return nil, err
 	}
 
+	// Was this shard ever part of a cluster? If so, --bootstrap/--join are
+	// no-ops: we recover membership and log from the persisted state instead.
+	existing, err := raft.HasExistingState(logStore, stableStore, snaps)
+	if err != nil {
+		return nil, fmt.Errorf("shard %d existing-state check: %w", i, err)
+	}
+
 	f := newFSM(n.backend)
 	f.fetchBlob = n.pullBlob
 	r, err := raft.NewRaft(rc, f, logStore, stableStore, snaps, transport)
 	if err != nil {
 		return nil, fmt.Errorf("shard %d raft: %w", i, err)
 	}
-	if n.cfg.Bootstrap {
-		r.BootstrapCluster(raft.Configuration{Servers: []raft.Server{{ID: rc.LocalID, Address: transport.LocalAddr()}}})
+	// Bootstrap only on a genuinely fresh node, and register ourselves by the
+	// stable advertise address (a DNS name in k8s), NOT the transport's resolved
+	// pod IP — otherwise our identity breaks the moment the pod IP changes.
+	if n.cfg.Bootstrap && !existing {
+		fut := r.BootstrapCluster(raft.Configuration{Servers: []raft.Server{{
+			ID: rc.LocalID, Address: raft.ServerAddress(advAddr),
+		}}})
+		if err := fut.Error(); err != nil {
+			return nil, fmt.Errorf("shard %d bootstrap: %w", i, err)
+		}
 	}
 	return &shard{
-		id: i, raft: r, fsm: f, transport: transport, advertise: transport.LocalAddr(),
-		logStore: logStore, stableStore: stableStore,
+		id: i, raft: r, fsm: f, transport: transport, advertise: raft.ServerAddress(advAddr),
+		logStore: logStore, stableStore: stableStore, fresh: !existing,
 	}, nil
 }
 
 // Start serves the data-plane HTTP API and, if configured, joins a cluster.
 func (n *Node) Start() error {
-	if n.cfg.JoinAddr != "" {
+	// Join only on a first start (no persisted Raft state). On a restart we
+	// already know our membership from the log and simply reconnect to peers;
+	// re-issuing a join would need a live leader and couple startup order.
+	if n.cfg.JoinAddr != "" && n.needsJoin() {
 		if err := n.join(); err != nil {
 			return fmt.Errorf("join cluster: %w", err)
 		}
 	}
 	go n.runStagingGC()
 	return n.http.ListenAndServe()
+}
+
+// needsJoin reports whether any shard started without persisted state and must
+// therefore be introduced to the cluster.
+func (n *Node) needsJoin() bool {
+	for _, sh := range n.shards {
+		if sh.fresh {
+			return true
+		}
+	}
+	return false
 }
 
 // runStagingGC periodically reclaims orphaned fan-out payloads.

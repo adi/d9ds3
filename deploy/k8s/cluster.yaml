@@ -31,7 +31,11 @@ metadata:
 spec:
   serviceName: d9ds3-storage
   replicas: 3
-  podManagementPolicy: OrderedReady   # pod-0 bootstraps and is Ready before pod-1 joins
+  # Parallel, NOT OrderedReady: a Raft node's readiness (/v1/readyz) requires a
+  # quorum, so pods must start together to form one. OrderedReady deadlocks on a
+  # full-cluster (re)start — it won't create pod-1 until pod-0 is Ready, but pod-0
+  # can't become Ready without pod-1/2. Join-retry handles bootstrap ordering.
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: d9ds3-storage
