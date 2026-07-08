@@ -46,6 +46,35 @@ func putReplicated(t *testing.T, b *posixBackend, bucket, key, content, token st
 	}
 }
 
+// TestApplyPutWithoutBucketMeta simulates a committed PUT arriving on a replica
+// that has no metadata (and no directory) for the bucket — e.g. a follower
+// materializing the write, or an inherited/asymmetric disk. The apply must not
+// reject (the gateway already validated the bucket); it must create and serve it,
+// so all replicas converge.
+func TestApplyPutWithoutBucketMeta(t *testing.T) {
+	b := mkBackend(t)
+	// NOTE: no createBucket — the bucket has no sidecar and no directory here.
+	if err := os.WriteFile(b.stagingPath("tok"), []byte("payload"), 0o644); err != nil {
+		t.Fatalf("stage: %v", err)
+	}
+	c := &command.Command{
+		Op: command.OpPutObject, Bucket: "inherited", Key: "dir/obj.txt", BlobToken: "tok",
+		VersionID: "v1", Size: 7, ETag: `"e"`, Meta: nowMeta(),
+	}
+	if err := b.applyPutObject(c); err != nil {
+		t.Fatalf("apply put must tolerate a missing bucket, got: %v", err)
+	}
+	// The object is now a real file and is served through the normal read path.
+	if _, err := os.Stat(filepath.Join(b.root, "inherited", "dir", "obj.txt")); err != nil {
+		t.Fatalf("object file not written: %v", err)
+	}
+	res, err := b.GetObject("inherited", "dir/obj.txt", types.GetOptions{})
+	if err != nil {
+		t.Fatalf("GetObject after implicit-bucket put: %v", err)
+	}
+	res.Body.Close()
+}
+
 // TestRestorePreservesPrefilledData reproduces the snapshot-install data-loss bug:
 // a node holding a prefilled file receives a snapshot that does NOT contain it.
 // The prefilled file must survive; a replicated object deleted upstream must go.

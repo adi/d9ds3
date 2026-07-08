@@ -28,9 +28,6 @@ func (b *posixBackend) readMPU(bucket, uploadID string) (*types.MultipartUpload,
 }
 
 func (b *posixBackend) applyCreateMultipart(c *command.Command) error {
-	if _, err := b.readBucketMeta(c.Bucket); err != nil {
-		return err
-	}
 	mp := types.MultipartUpload{
 		Bucket:       c.Bucket,
 		Key:          c.Key,
@@ -75,10 +72,7 @@ func (b *posixBackend) applyUploadPart(c *command.Command) error {
 }
 
 func (b *posixBackend) applyCompleteMultipart(c *command.Command) error {
-	bm, err := b.readBucketMeta(c.Bucket)
-	if err != nil {
-		return err
-	}
+	bm := b.bucketMetaForWrite(c.Bucket)
 	mp, err := b.readMPU(c.Bucket, c.UploadID)
 	if err != nil {
 		return err

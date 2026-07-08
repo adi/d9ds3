@@ -150,10 +150,7 @@ func (b *posixBackend) finalizeKey(km *types.KeyMeta) error {
 // ---- PutObject ----
 
 func (b *posixBackend) applyPutObject(c *command.Command) error {
-	bm, err := b.readBucketMeta(c.Bucket)
-	if err != nil {
-		return err
-	}
+	bm := b.bucketMetaForWrite(c.Bucket)
 	staged := b.stagingPath(c.BlobToken)
 	if _, err := os.Stat(staged); err != nil {
 		return ErrBlobMissing
@@ -205,10 +202,7 @@ func applyPutExtras(nv *types.ObjectMeta, c *command.Command) {
 // ---- DeleteObject ----
 
 func (b *posixBackend) applyDeleteObject(c *command.Command) error {
-	bm, err := b.readBucketMeta(c.Bucket)
-	if err != nil {
-		return err
-	}
+	bm := b.bucketMetaForWrite(c.Bucket)
 	km, err := b.loadKeyMeta(c.Bucket, c.Key)
 	if err != nil {
 		// Deleting a nonexistent key: create a delete marker if versioning is on,
@@ -298,10 +292,7 @@ func (b *posixBackend) applyCopyObject(c *command.Command) error {
 	if c.Source == nil {
 		return s3err.ErrInvalidKey
 	}
-	bm, err := b.readBucketMeta(c.Bucket)
-	if err != nil {
-		return err
-	}
+	bm := b.bucketMetaForWrite(c.Bucket)
 	src, _, err := b.resolveVersion(c.Source.Bucket, c.Source.Key, c.Source.VersionID)
 	if err != nil {
 		return err

@@ -337,6 +337,19 @@ func (b *posixBackend) readBucketMeta(bucket string) (*types.BucketMeta, error) 
 	return nil, s3err.ErrNoSuchBucket
 }
 
+// bucketMetaForWrite returns a bucket's config, or a default (versioning off) when
+// none exists locally. An already-committed write MUST apply deterministically on
+// every replica — even one that lacks the bucket locally (e.g. asymmetric prefill,
+// or a follower materializing the write before it has seen the bucket) — so object
+// writes never reject on a missing bucket. The gateway is the layer that rejects a
+// PUT to a truly nonexistent bucket, before the command is ever logged.
+func (b *posixBackend) bucketMetaForWrite(bucket string) *types.BucketMeta {
+	if bm, err := b.readBucketMeta(bucket); err == nil {
+		return bm
+	}
+	return &types.BucketMeta{Name: bucket, Ownership: "BucketOwnerEnforced"}
+}
+
 // HeadBucket / GetBucketMeta return the full bucket config.
 func (b *posixBackend) GetBucketMeta(bucket string) (*types.BucketMeta, error) {
 	return b.readBucketMeta(bucket)
